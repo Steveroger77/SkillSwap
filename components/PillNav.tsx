@@ -168,6 +168,7 @@ const PillNav: React.FC<PillNavProps> = ({
           box-sizing: border-box;
           background: rgba(17, 17, 17, 0.5);
           backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
           border-radius: 9999px;
           border: 1px solid rgba(255, 255, 255, 0.1);
           padding: 6px;
