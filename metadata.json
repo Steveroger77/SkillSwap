@@ -1,0 +1,9 @@
+{
+  "name": "SkillSwap",
+  "description": "A minimal, futuristic, black-and-white social learning platform where users trade skills instead of money. Features a glossy UI, feed, skill swapping, and messaging.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ]
+}
