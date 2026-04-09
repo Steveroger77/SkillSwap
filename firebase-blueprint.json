@@ -1,0 +1,146 @@
+{
+  "entities": {
+    "Profile": {
+      "title": "Profile",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "username": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "bio": { "type": "string" },
+        "avatar_url": { "type": "string", "format": "uri" },
+        "location": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "username", "email"]
+    },
+    "Skill": {
+      "title": "Skill",
+      "description": "A skill that can be shared or learned",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "category": { "type": "string" }
+      },
+      "required": ["name"]
+    },
+    "UserSkill": {
+      "title": "UserSkill",
+      "description": "A skill associated with a user",
+      "type": "object",
+      "properties": {
+        "skill_id": { "type": "string" },
+        "type": { "type": "string", "enum": ["know", "learn"] }
+      },
+      "required": ["skill_id", "type"]
+    },
+    "Post": {
+      "title": "Post",
+      "description": "A post shared by a user",
+      "type": "object",
+      "properties": {
+        "user_id": { "type": "string" },
+        "caption": { "type": "string" },
+        "location": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "media": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "url": { "type": "string", "format": "uri" },
+              "type": { "type": "string", "enum": ["image", "video"] }
+            }
+          }
+        }
+      },
+      "required": ["user_id", "created_at"]
+    },
+    "Comment": {
+      "title": "Comment",
+      "description": "A comment on a post",
+      "type": "object",
+      "properties": {
+        "post_id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "content": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["post_id", "user_id", "content", "created_at"]
+    },
+    "SwapRequest": {
+      "title": "SwapRequest",
+      "description": "A request to swap skills",
+      "type": "object",
+      "properties": {
+        "from_user": { "type": "string" },
+        "to_user": { "type": "string" },
+        "skill_id": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "rejected"] },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["from_user", "to_user", "status", "created_at"]
+    },
+    "Chat": {
+      "title": "Chat",
+      "description": "A chat conversation",
+      "type": "object",
+      "properties": {
+        "participants": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["participants", "created_at"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "A message in a chat",
+      "type": "object",
+      "properties": {
+        "chat_id": { "type": "string" },
+        "sender_id": { "type": "string" },
+        "content": { "type": "string" },
+        "attachment_url": { "type": "string", "format": "uri" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["chat_id", "sender_id", "created_at"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "Profile",
+      "description": "User profiles"
+    },
+    "/skills/{skillId}": {
+      "schema": "Skill",
+      "description": "Global skills list"
+    },
+    "/users/{userId}/skills/{userSkillId}": {
+      "schema": "UserSkill",
+      "description": "Skills associated with a specific user"
+    },
+    "/posts/{postId}": {
+      "schema": "Post",
+      "description": "Posts feed"
+    },
+    "/posts/{postId}/comments/{commentId}": {
+      "schema": "Comment",
+      "description": "Comments on posts"
+    },
+    "/swap_requests/{requestId}": {
+      "schema": "SwapRequest",
+      "description": "Skill swap requests"
+    },
+    "/chats/{chatId}": {
+      "schema": "Chat",
+      "description": "Chat metadata"
+    },
+    "/chats/{chatId}/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Messages within a chat"
+    }
+  }
+}

@@ -1,0 +1,207 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Fields: name (string), username (string), email (string), bio (string), avatar_url (string), location (string), created_at (timestamp)
+    //
+    // Collection: skills
+    // Fields: name (string), category (string)
+    //
+    // Collection: users/{userId}/skills
+    // Fields: skill_id (string), type (string: 'know'|'learn')
+    //
+    // Collection: posts
+    // Fields: user_id (string), caption (string), location (string), created_at (timestamp), media (array of {url, type})
+    //
+    // Collection: posts/{postId}/comments
+    // Fields: post_id (string), user_id (string), content (string), created_at (timestamp)
+    //
+    // Collection: swap_requests
+    // Fields: from_user (string), to_user (string), skill_id (string), status (string: 'pending'|'accepted'|'rejected'), created_at (timestamp)
+    //
+    // Collection: chats
+    // Fields: participants (list of strings), created_at (timestamp)
+    //
+    // Collection: chats/{chatId}/messages
+    // Fields: chat_id (string), sender_id (string), content (string), attachment_url (string), created_at (timestamp)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
+          (request.auth.token.email == "sathwikreddy477@gmail.com" && request.auth.token.email_verified == true)
+        );
+    }
+
+    function isValidChat(data) {
+      return hasOnlyAllowedFields(['participants', 'created_at', 'updated_at']) &&
+             data.participants is list &&
+             data.participants.size() >= 2 &&
+             request.auth.uid in data.participants &&
+             data.created_at is timestamp &&
+             data.updated_at is timestamp;
+    }
+
+    function isValidMessage(data, chatId) {
+      return hasOnlyAllowedFields(['chat_id', 'sender_id', 'content', 'attachment_url', 'created_at']) &&
+             data.chat_id == chatId &&
+             (data.sender_id == request.auth.uid || isAdmin()) &&
+             data.content is string &&
+             data.content.size() < 5000 &&
+             (!('attachment_url' in data) || isValidUrl(data.attachment_url)) &&
+             data.created_at is timestamp;
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidUrl(url) {
+      return url is string && (url.matches("^https://.*") || url.matches("^http://.*"));
+    }
+
+    function isRecent(ts) {
+      return ts is timestamp && 
+             ts > request.time - duration.value(5, 'm') &&
+             ts < request.time + duration.value(5, 'm');
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return hasOnlyAllowedFields(['id', 'name', 'username', 'email', 'bio', 'avatar_url', 'location', 'created_at', 'role']) &&
+             (!('id' in data) || data.id == request.auth.uid) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.username is string && data.username.size() > 0 && data.username.size() < 50 &&
+             (!('email' in data) || (data.email == "" || isValidEmail(data.email))) &&
+             (!('bio' in data) || (data.bio is string && data.bio.size() < 500)) &&
+             (!('avatar_url' in data) || isValidUrl(data.avatar_url)) &&
+             (!('location' in data) || (data.location is string && data.location.size() < 100)) &&
+             data.created_at is timestamp;
+    }
+
+    function isValidPost(data) {
+      return hasOnlyAllowedFields(['user_id', 'caption', 'location', 'created_at', 'updated_at', 'media', 'hashtags', 'mentions', 'likes_count', 'comments_count']) &&
+             data.user_id == request.auth.uid &&
+             (!('caption' in data) || (data.caption is string && data.caption.size() < 2000)) &&
+             (!('location' in data) || (data.location is string && data.location.size() < 100)) &&
+             data.created_at is timestamp &&
+             (!('updated_at' in data) || data.updated_at is timestamp) &&
+             (!('media' in data) || (data.media is list && data.media.size() < 11)) &&
+             (!('hashtags' in data) || (data.hashtags is list && data.hashtags.size() < 21)) &&
+             (!('mentions' in data) || (data.mentions is list && data.mentions.size() < 21)) &&
+             (!('likes_count' in data) || data.likes_count is number) &&
+             (!('comments_count' in data) || data.comments_count is number);
+    }
+
+    function isValidSwapRequest(data) {
+      return hasOnlyAllowedFields(['from_user', 'to_user', 'skill_id', 'skill_name', 'status', 'created_at']) &&
+             data.from_user == request.auth.uid &&
+             data.to_user is string &&
+             (!('skill_id' in data) || data.skill_id is string || data.skill_id == null) &&
+             (!('skill_name' in data) || data.skill_name is string) &&
+             data.status in ['pending', 'accepted', 'rejected'] &&
+             data.created_at is timestamp;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (!('role' in request.resource.data) || request.resource.data.role == 'user');
+      allow update: if (isOwner(userId) || isAdmin()) && isValidUser(request.resource.data) && 
+                      (isAdmin() || (request.resource.data.role == resource.data.role));
+      
+      match /skills/{skillId} {
+        allow read: if isAuthenticated();
+        allow write: if isOwner(userId) || isAdmin();
+      }
+
+      match /saved_posts/{postId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    match /skills/{skillId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin();
+    }
+
+    match /posts/{postId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidPost(request.resource.data);
+      allow update, delete: if isAuthenticated() && (resource.data.user_id == request.auth.uid || isAdmin());
+
+      match /comments/{commentId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated() && request.resource.data.user_id == request.auth.uid;
+        allow delete: if isAuthenticated() && (resource.data.user_id == request.auth.uid || isAdmin());
+
+        match /likes/{userId} {
+          allow read: if isAuthenticated();
+          allow write: if isOwner(userId);
+        }
+
+        match /replies/{replyId} {
+          allow read: if isAuthenticated();
+          allow create: if isAuthenticated() && request.resource.data.user_id == request.auth.uid;
+          allow delete: if isAuthenticated() && (resource.data.user_id == request.auth.uid || isAdmin());
+        }
+      }
+
+      match /likes/{userId} {
+        allow read: if isAuthenticated();
+        allow write: if isOwner(userId);
+      }
+    }
+
+    match /swap_requests/{requestId} {
+      allow read: if isAuthenticated() && (resource.data.from_user == request.auth.uid || resource.data.to_user == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && isValidSwapRequest(request.resource.data);
+      allow update: if isAuthenticated() && (
+        (resource.data.to_user == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])) ||
+        isAdmin()
+      );
+      allow delete: if isAuthenticated() && (resource.data.from_user == request.auth.uid || isAdmin());
+    }
+
+    match /chats/{chatId} {
+      allow read: if isAuthenticated() && (request.auth.uid in resource.data.participants || isAdmin());
+      allow create: if isAuthenticated() && isValidChat(request.resource.data);
+      
+      match /messages/{messageId} {
+        allow read: if isAuthenticated() && (request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants || isAdmin());
+        allow create: if isAuthenticated() && 
+                        request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants &&
+                        isValidMessage(request.resource.data, chatId);
+      }
+    }
+  }
+}

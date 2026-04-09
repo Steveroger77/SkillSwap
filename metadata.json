@@ -1,0 +1,8 @@
+{
+  "name": "SkillSwap",
+  "description": "Exchange talent. Build bridges. Master your craft through community.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
