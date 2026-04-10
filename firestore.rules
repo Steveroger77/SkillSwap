@@ -94,7 +94,7 @@ service cloud.firestore {
 
     function isValidUser(data) {
       return hasOnlyAllowedFields(['id', 'name', 'username', 'email', 'bio', 'avatar_url', 'location', 'created_at', 'role']) &&
-             (!('id' in data) || data.id == request.auth.uid) &&
+             (isAdmin() || !('id' in data) || data.id == request.auth.uid) &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.username is string && data.username.size() > 0 && data.username.size() < 50 &&
              (!('email' in data) || (data.email == "" || isValidEmail(data.email))) &&
@@ -106,7 +106,7 @@ service cloud.firestore {
 
     function isValidPost(data) {
       return hasOnlyAllowedFields(['user_id', 'caption', 'location', 'created_at', 'updated_at', 'media', 'hashtags', 'mentions', 'likes_count', 'comments_count']) &&
-             data.user_id == request.auth.uid &&
+             (data.user_id == request.auth.uid || isAdmin()) &&
              (!('caption' in data) || (data.caption is string && data.caption.size() < 2000)) &&
              (!('location' in data) || (data.location is string && data.location.size() < 100)) &&
              data.created_at is timestamp &&
@@ -120,7 +120,7 @@ service cloud.firestore {
 
     function isValidSwapRequest(data) {
       return hasOnlyAllowedFields(['from_user', 'to_user', 'skill_id', 'skill_name', 'status', 'created_at']) &&
-             data.from_user == request.auth.uid &&
+             (data.from_user == request.auth.uid || isAdmin()) &&
              data.to_user is string &&
              (!('skill_id' in data) || data.skill_id is string || data.skill_id == null) &&
              (!('skill_name' in data) || data.skill_name is string) &&
@@ -190,6 +190,10 @@ service cloud.firestore {
         isAdmin()
       );
       allow delete: if isAuthenticated() && (resource.data.from_user == request.auth.uid || isAdmin());
+    }
+
+    match /test/connection {
+      allow read: if true;
     }
 
     match /chats/{chatId} {

@@ -14,7 +14,8 @@ import {
   getDocs
 } from 'firebase/firestore';
 import { useAuth } from '../hooks/useAuth';
-import { Send, Trash2, Heart, Reply, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
+import { useToast } from '../hooks/useToast';
+import { Send, Trash2, Heart, Reply, Loader2, ChevronDown, ChevronUp, XCircle } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -24,11 +25,30 @@ interface CommentSectionProps {
 
 export function CommentSection({ postId }: CommentSectionProps) {
   const { user } = useAuth();
+  const { showToast } = useToast();
   const [comments, setComments] = useState<any[]>([]);
   const [newComment, setNewComment] = useState('');
   const [replyTo, setReplyTo] = useState<{ id: string, name: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<{ id: string, type: 'comment' | 'reply', commentId?: string } | null>(null);
+
+  const handleDelete = async () => {
+    if (!itemToDelete) return;
+    try {
+      if (itemToDelete.type === 'comment') {
+        await deleteDoc(doc(db, 'posts', postId, 'comments', itemToDelete.id));
+        showToast('Comment deleted', 'success');
+      } else if (itemToDelete.commentId) {
+        await deleteDoc(doc(db, 'posts', postId, 'comments', itemToDelete.commentId, 'replies', itemToDelete.id));
+        showToast('Reply deleted', 'success');
+      }
+      setItemToDelete(null);
+    } catch (error) {
+      console.error('Error deleting:', error);
+      showToast('Error deleting item', 'error');
+    }
+  };
 
   useEffect(() => {
     const q = query(
@@ -128,10 +148,47 @@ export function CommentSection({ postId }: CommentSectionProps) {
                 setNewComment(`@${name} `);
               }}
               onLike={handleLikeComment}
+              onDelete={(id) => setItemToDelete({ id, type: 'comment' })}
+              onDeleteReply={(replyId, commentId) => setItemToDelete({ id: replyId, type: 'reply', commentId })}
             />
           ))
         )}
       </div>
+
+      <AnimatePresence>
+        {itemToDelete && (
+          <div className="fixed inset-0 z-[150] flex items-center justify-center p-6 bg-black/80 backdrop-blur-md">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="glass-card p-8 rounded-3xl max-w-sm w-full space-y-6 text-center"
+            >
+              <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto">
+                <Trash2 className="w-8 h-8 text-red-500" />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-xl font-bold text-white">Delete {itemToDelete.type === 'comment' ? 'Comment' : 'Reply'}?</h3>
+                <p className="text-on-surface-variant text-sm">This action cannot be undone.</p>
+              </div>
+              <div className="flex flex-col gap-3">
+                <button 
+                  onClick={handleDelete}
+                  className="w-full bg-red-500 text-white py-3 rounded-full font-bold text-sm tracking-tight hover:bg-red-600 transition-colors"
+                >
+                  Delete
+                </button>
+                <button 
+                  onClick={() => setItemToDelete(null)}
+                  className="w-full bg-white/10 text-white py-3 rounded-full font-bold text-sm tracking-tight hover:bg-white/20 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       <div className="space-y-2">
         <AnimatePresence>
@@ -167,7 +224,7 @@ export function CommentSection({ postId }: CommentSectionProps) {
   );
 }
 
-function CommentItem({ comment, postId, user, onReply, onLike }: any) {
+function CommentItem({ comment, postId, user, onReply, onLike, onDelete, onDeleteReply }: any) {
   const [showReplies, setShowReplies] = useState(false);
   const [replies, setReplies] = useState<any[]>([]);
   const [repliesCount, setRepliesCount] = useState(0);
@@ -227,11 +284,7 @@ function CommentItem({ comment, postId, user, onReply, onLike }: any) {
             </button>
             {comment.user_id === user?.uid && (
               <button 
-                onClick={async () => {
-                  if (window.confirm('Delete comment?')) {
-                    await deleteDoc(doc(db, 'posts', postId, 'comments', comment.id));
-                  }
-                }}
+                onClick={() => onDelete(comment.id)}
                 className="text-[10px] font-bold text-red-500/50 hover:text-red-500 transition-colors"
               >
                 Delete
@@ -284,11 +337,7 @@ function CommentItem({ comment, postId, user, onReply, onLike }: any) {
                         </button>
                         {reply.user_id === user?.uid && (
                           <button 
-                            onClick={async () => {
-                              if (window.confirm('Delete reply?')) {
-                                await deleteDoc(doc(db, 'posts', postId, 'comments', comment.id, 'replies', reply.id));
-                              }
-                            }}
+                            onClick={() => onDeleteReply(reply.id, comment.id)}
                             className="text-[10px] font-bold text-red-500/50 hover:text-red-500 transition-colors"
                           >
                             Delete

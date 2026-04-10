@@ -2,12 +2,14 @@ import { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
 import { collection, getDocs, query, where, addDoc, serverTimestamp } from 'firebase/firestore';
 import { useAuth } from '../hooks/useAuth';
+import { useToast } from '../hooks/useToast';
 import type { Profile } from '../types';
 import { Search as SearchIcon, MapPin, Loader2, XCircle } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 export default function Search() {
   const { profile: currentUserProfile } = useAuth();
+  const { showToast } = useToast();
   const [profiles, setProfiles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -70,9 +72,10 @@ export default function Search() {
         status: 'pending',
         created_at: serverTimestamp()
       });
-      alert('Swap request sent!');
+      showToast('Swap request sent!', 'success');
     } catch (error) {
       console.error('Error sending swap request:', error);
+      showToast('Error sending swap request. Please try again.', 'error');
     }
   };
 

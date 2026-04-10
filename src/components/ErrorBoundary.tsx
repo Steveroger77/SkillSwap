@@ -26,9 +26,10 @@ export class ErrorBoundary extends Component<Props, State> {
   public render() {
     if (this.state.hasError) {
       const errorMessage = this.state.error?.message || "";
-      const isSupabaseError = errorMessage.includes('Supabase configuration missing') || 
-                             errorMessage.includes('invalid input syntax for type uuid') ||
-                             errorMessage.includes('apiKey');
+      const isFirebaseError = errorMessage.includes('Firebase configuration missing') || 
+                             errorMessage.includes('apiKey') ||
+                             errorMessage.includes('authDomain') ||
+                             errorMessage.includes('projectId');
 
       return (
         <div className="min-h-screen flex items-center justify-center bg-surface p-6">
@@ -40,8 +41,8 @@ export class ErrorBoundary extends Component<Props, State> {
             </div>
             <h2 className="text-2xl font-headline font-bold text-white">Application Error</h2>
             <p className="text-on-surface-variant leading-relaxed">
-              {isSupabaseError 
-                ? "There seems to be an issue with your Supabase configuration. Please double-check your VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in the Secrets panel."
+              {isFirebaseError 
+                ? "There seems to be an issue with your Firebase configuration. Please ensure your Firebase project is correctly set up."
                 : "An unexpected error occurred while loading the application."}
             </p>
             {this.state.error && (

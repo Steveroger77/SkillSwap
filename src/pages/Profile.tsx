@@ -15,6 +15,7 @@ import {
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { useAuth } from '../hooks/useAuth';
+import { useToast } from '../hooks/useToast';
 import { format } from 'date-fns';
 import { 
   User, 
@@ -41,6 +42,7 @@ import { seedMockData } from '../lib/mockData';
 
 export default function Profile() {
   const { profile, signOut, loading, user } = useAuth();
+  const { showToast } = useToast();
   const [posts, setPosts] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [knowSkills, setKnowSkills] = useState<any[]>([]);
@@ -136,9 +138,10 @@ export default function Profile() {
       fetchUserContent();
       setSelectedPost(null);
       setPostToDelete(null);
+      showToast('Post deleted successfully', 'success');
     } catch (error) {
       console.error('Error deleting post:', error);
-      alert(`Error deleting post: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      showToast(`Error deleting post: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
     }
   };
 
@@ -235,9 +238,10 @@ export default function Profile() {
 
       setIsEditing(false);
       setAvatarFile(null);
+      showToast('Profile updated successfully', 'success');
     } catch (error) {
       console.error('Error updating profile:', error);
-      alert('Error updating profile. Please try again.');
+      showToast('Error updating profile. Please try again.', 'error');
     } finally {
       setIsUpdating(false);
     }
@@ -248,11 +252,11 @@ export default function Profile() {
     setIsSeeding(true);
     try {
       await seedMockData(user.uid);
-      alert('Mock data seeded successfully! Refreshing content...');
+      showToast('Mock data seeded successfully! Refreshing content...', 'success');
       fetchUserContent();
       fetchSavedPosts();
     } catch (error) {
-      alert('Failed to seed mock data. Check console for details.');
+      showToast('Failed to seed mock data. Check console for details.', 'error');
     } finally {
       setIsSeeding(false);
     }
@@ -670,7 +674,7 @@ export default function Profile() {
               <div className="w-full md:w-2/5 flex flex-col bg-surface border-l border-white/10">
                 <div className="p-4 border-b border-white/10 flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <img src={profile.avatar_url} className="w-8 h-8 rounded-full object-cover" />
+                    <img src={profile.avatar_url} className="w-8 h-8 rounded-full object-cover" referrerPolicy="no-referrer" />
                     <span className="font-bold text-white">@{profile.username}</span>
                   </div>
                   <div className="flex items-center gap-2">
@@ -690,7 +694,7 @@ export default function Profile() {
 
                 <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
                   <div className="flex gap-3">
-                    <img src={profile.avatar_url} className="w-8 h-8 rounded-full object-cover" />
+                    <img src={profile.avatar_url} className="w-8 h-8 rounded-full object-cover" referrerPolicy="no-referrer" />
                     <div className="flex-1">
                       <p className="text-sm">
                         <span className="font-bold mr-2">@{profile.username}</span>

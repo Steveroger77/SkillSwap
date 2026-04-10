@@ -17,6 +17,7 @@ import {
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { useAuth } from '../hooks/useAuth';
+import { useToast } from '../hooks/useToast';
 import { 
   Heart, 
   MessageCircle, 
@@ -69,6 +70,7 @@ const HashtagText = ({ text }: { text: string }) => {
 
 export default function Feed() {
   const { user, profile } = useAuth();
+  const { showToast } = useToast();
   const [posts, setPosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [newPostContent, setNewPostContent] = useState('');
@@ -240,11 +242,11 @@ export default function Feed() {
           }
         };
         console.error('Firestore Error: ', JSON.stringify(errInfo));
-        alert(`Error creating post: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        showToast(`Error creating post: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
       }
     } catch (error) {
       console.error('General Error in handleCreatePost:', error);
-      alert(`Error: ${error instanceof Error ? error.message : 'An unexpected error occurred'}`);
+      showToast(`Error: ${error instanceof Error ? error.message : 'An unexpected error occurred'}`, 'error');
     } finally {
       setUploading(false);
     }
@@ -274,13 +276,13 @@ export default function Feed() {
       setPostToDelete(null);
     } catch (error) {
       console.error('Error deleting post:', error);
-      alert(`Error deleting post: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      showToast(`Error deleting post: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
     }
   };
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    alert('Link copied to clipboard!');
+    showToast('Link copied to clipboard!', 'success');
     setShowShareModal(null);
   };
 
@@ -344,6 +346,7 @@ export default function Feed() {
                   src={URL.createObjectURL(file)} 
                   alt="Preview" 
                   className="w-full h-full object-cover"
+                  referrerPolicy="no-referrer"
                 />
                 <button 
                   onClick={() => setSelectedFiles(prev => prev.filter((_, index) => index !== i))}

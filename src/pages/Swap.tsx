@@ -2,11 +2,13 @@ import { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
 import { collection, getDocs, query, where, addDoc, serverTimestamp, limit, doc, getDoc } from 'firebase/firestore';
 import { useAuth } from '../hooks/useAuth';
+import { useToast } from '../hooks/useToast';
 import type { Skill, Profile } from '../types';
 import { PlusCircle, Zap, Loader2 } from 'lucide-react';
 
 export default function Swap() {
   const { profile } = useAuth();
+  const { showToast } = useToast();
   const [learnSkills, setLearnSkills] = useState<any[]>([]);
   const [knowSkills, setKnowSkills] = useState<any[]>([]);
   const [mentors, setMentors] = useState<any[]>([]);
@@ -93,9 +95,10 @@ export default function Swap() {
         status: 'pending',
         created_at: serverTimestamp()
       });
-      alert('Swap request sent!');
+      showToast('Swap request sent!', 'success');
     } catch (error) {
       console.error('Error sending swap request:', error);
+      showToast('Error sending swap request. Please try again.', 'error');
     }
   };
 
