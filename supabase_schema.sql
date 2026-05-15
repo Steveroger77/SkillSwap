@@ -1,9 +1,8 @@
 -- ╔══════════════════════════════════════════════════════════════════╗
--- ║  SkillSwap — Supabase Production Schema                         ║
+-- ║  SkillSwap — Supabase Production Schema (fixed)                 ║
 -- ║  Run this in: Supabase Dashboard > SQL Editor                   ║
 -- ╚══════════════════════════════════════════════════════════════════╝
 
--- Enable UUID extension
 create extension if not exists "pgcrypto";
 
 -- ── PROFILES ──────────────────────────────────────────────────────────────
@@ -26,7 +25,10 @@ begin
   values (
     new.id,
     coalesce(new.raw_user_meta_data->>'name', new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
-    lower(regexp_replace(coalesce(new.raw_user_meta_data->>'username', split_part(new.email, '@', 1)), '[^a-z0-9_.]', '', 'g')) || '_' || substr(new.id::text, 1, 4),
+    lower(regexp_replace(
+      coalesce(new.raw_user_meta_data->>'username', split_part(new.email, '@', 1)),
+      '[^a-z0-9_.]', '', 'g'
+    )) || '_' || substr(new.id::text, 1, 4),
     new.email,
     new.raw_user_meta_data->>'avatar_url'
   )
@@ -142,88 +144,157 @@ create index if not exists idx_user_skills_user   on public.user_skills(user_id)
 create index if not exists idx_profiles_username  on public.profiles(username);
 
 -- ── ROW LEVEL SECURITY ────────────────────────────────────────────────────
-alter table public.profiles       enable row level security;
-alter table public.skills         enable row level security;
-alter table public.user_skills    enable row level security;
-alter table public.posts          enable row level security;
-alter table public.post_media     enable row level security;
-alter table public.post_likes     enable row level security;
-alter table public.saved_posts    enable row level security;
-alter table public.comments       enable row level security;
-alter table public.swap_requests  enable row level security;
-alter table public.chats          enable row level security;
+alter table public.profiles          enable row level security;
+alter table public.skills            enable row level security;
+alter table public.user_skills       enable row level security;
+alter table public.posts             enable row level security;
+alter table public.post_media        enable row level security;
+alter table public.post_likes        enable row level security;
+alter table public.saved_posts       enable row level security;
+alter table public.comments          enable row level security;
+alter table public.swap_requests     enable row level security;
+alter table public.chats             enable row level security;
 alter table public.chat_participants enable row level security;
-alter table public.messages       enable row level security;
+alter table public.messages          enable row level security;
 
--- Profiles: anyone authenticated can read; only own profile can be updated
-create policy "profiles_select" on public.profiles for select to authenticated using (true);
-create policy "profiles_insert" on public.profiles for insert to authenticated with check (id = auth.uid());
-create policy "profiles_update" on public.profiles for update to authenticated using (id = auth.uid());
+-- drop old policies if re-running
+do $$ declare r record;
+begin
+  for r in select policyname, tablename from pg_policies where schemaname = 'public' loop
+    execute format('drop policy if exists %I on public.%I', r.policyname, r.tablename);
+  end loop;
+end $$;
 
--- Skills: readable by all; insertable by authenticated
-create policy "skills_select" on public.skills for select to authenticated using (true);
-create policy "skills_insert" on public.skills for insert to authenticated with check (true);
+-- Profiles
+create policy "profiles_select" on public.profiles
+  for select to authenticated using (true);
+create policy "profiles_insert" on public.profiles
+  for insert to authenticated with check (id = auth.uid());
+create policy "profiles_update" on public.profiles
+  for update to authenticated using (id = auth.uid());
+
+-- Skills
+create policy "skills_select" on public.skills
+  for select to authenticated using (true);
+create policy "skills_insert" on public.skills
+  for insert to authenticated with check (true);
 
 -- User skills
-create policy "user_skills_select" on public.user_skills for select to authenticated using (true);
-create policy "user_skills_insert" on public.user_skills for insert to authenticated with check (user_id = auth.uid());
-create policy "user_skills_delete" on public.user_skills for delete to authenticated using (user_id = auth.uid());
+create policy "user_skills_select" on public.user_skills
+  for select to authenticated using (true);
+create policy "user_skills_insert" on public.user_skills
+  for insert to authenticated with check (user_id = auth.uid());
+create policy "user_skills_delete" on public.user_skills
+  for delete to authenticated using (user_id = auth.uid());
 
 -- Posts
-create policy "posts_select" on public.posts for select to authenticated using (true);
-create policy "posts_insert" on public.posts for insert to authenticated with check (user_id = auth.uid());
-create policy "posts_delete" on public.posts for delete to authenticated using (user_id = auth.uid());
+create policy "posts_select" on public.posts
+  for select to authenticated using (true);
+create policy "posts_insert" on public.posts
+  for insert to authenticated with check (user_id = auth.uid());
+create policy "posts_delete" on public.posts
+  for delete to authenticated using (user_id = auth.uid());
 
 -- Post media
-create policy "post_media_select" on public.post_media for select to authenticated using (true);
-create policy "post_media_insert" on public.post_media for insert to authenticated with check (true);
-create policy "post_media_delete" on public.post_media for delete to authenticated using (
-  exists (select 1 from public.posts where id = post_media.post_id and user_id = auth.uid())
-);
+create policy "post_media_select" on public.post_media
+  for select to authenticated using (true);
+create policy "post_media_insert" on public.post_media
+  for insert to authenticated with check (true);
+create policy "post_media_delete" on public.post_media
+  for delete to authenticated using (
+    exists (
+      select 1 from public.posts
+      where id = post_media.post_id
+      and user_id = auth.uid()
+    )
+  );
 
 -- Likes
-create policy "post_likes_select" on public.post_likes for select to authenticated using (true);
-create policy "post_likes_insert" on public.post_likes for insert to authenticated with check (user_id = auth.uid());
-create policy "post_likes_delete" on public.post_likes for delete to authenticated using (user_id = auth.uid());
+create policy "post_likes_select" on public.post_likes
+  for select to authenticated using (true);
+create policy "post_likes_insert" on public.post_likes
+  for insert to authenticated with check (user_id = auth.uid());
+create policy "post_likes_delete" on public.post_likes
+  for delete to authenticated using (user_id = auth.uid());
 
 -- Saved posts
-create policy "saved_posts_select" on public.saved_posts for select to authenticated using (user_id = auth.uid());
-create policy "saved_posts_insert" on public.saved_posts for insert to authenticated with check (user_id = auth.uid());
-create policy "saved_posts_delete" on public.saved_posts for delete to authenticated using (user_id = auth.uid());
+create policy "saved_posts_select" on public.saved_posts
+  for select to authenticated using (user_id = auth.uid());
+create policy "saved_posts_insert" on public.saved_posts
+  for insert to authenticated with check (user_id = auth.uid());
+create policy "saved_posts_delete" on public.saved_posts
+  for delete to authenticated using (user_id = auth.uid());
 
 -- Comments
-create policy "comments_select" on public.comments for select to authenticated using (true);
-create policy "comments_insert" on public.comments for insert to authenticated with check (user_id = auth.uid());
-create policy "comments_delete" on public.comments for delete to authenticated using (user_id = auth.uid());
+create policy "comments_select" on public.comments
+  for select to authenticated using (true);
+create policy "comments_insert" on public.comments
+  for insert to authenticated with check (user_id = auth.uid());
+create policy "comments_delete" on public.comments
+  for delete to authenticated using (user_id = auth.uid());
 
 -- Swap requests
-create policy "swap_select" on public.swap_requests for select to authenticated using (from_user = auth.uid() or to_user = auth.uid());
-create policy "swap_insert" on public.swap_requests for insert to authenticated with check (from_user = auth.uid());
-create policy "swap_update" on public.swap_requests for update to authenticated using (to_user = auth.uid());
+create policy "swap_select" on public.swap_requests
+  for select to authenticated using (
+    from_user = auth.uid() or to_user = auth.uid()
+  );
+create policy "swap_insert" on public.swap_requests
+  for insert to authenticated with check (from_user = auth.uid());
+create policy "swap_update" on public.swap_requests
+  for update to authenticated using (to_user = auth.uid());
 
 -- Chats
-create policy "chats_select" on public.chats for select to authenticated using (
-  exists (select 1 from public.chat_participants where chat_id = chats.id and user_id = auth.uid())
-);
-create policy "chats_insert" on public.chats for insert to authenticated with check (true);
+create policy "chats_select" on public.chats
+  for select to authenticated using (
+    exists (
+      select 1 from public.chat_participants
+      where chat_id = chats.id
+      and user_id = auth.uid()
+    )
+  );
+create policy "chats_insert" on public.chats
+  for insert to authenticated with check (true);
 
 -- Chat participants
-create policy "chat_participants_select" on public.chat_participants for select to authenticated using (true);
-create policy "chat_participants_insert" on public.chat_participants for insert to authenticated with check (true);
+create policy "chat_participants_select" on public.chat_participants
+  for select to authenticated using (true);
+create policy "chat_participants_insert" on public.chat_participants
+  for insert to authenticated with check (true);
 
 -- Messages
-create policy "messages_select" on public.messages for select to authenticated using (
-  exists (select 1 from public.chat_participants where chat_id = messages.chat_id and user_id = auth.uid())
-);
-create policy "messages_insert" on public.messages for insert to authenticated with check (sender_id = auth.uid());
+create policy "messages_select" on public.messages
+  for select to authenticated using (
+    exists (
+      select 1 from public.chat_participants
+      where chat_id = messages.chat_id
+      and user_id = auth.uid()
+    )
+  );
+create policy "messages_insert" on public.messages
+  for insert to authenticated with check (sender_id = auth.uid());
 
 -- ── STORAGE BUCKET ────────────────────────────────────────────────────────
-insert into storage.buckets (id, name, public) values ('media', 'media', true) on conflict do nothing;
+insert into storage.buckets (id, name, public)
+  values ('media', 'media', true)
+  on conflict (id) do update set public = true;
 
-create policy "media_select" on storage.objects for select using (bucket_id = 'media');
-create policy "media_insert" on storage.objects for insert to authenticated with check (bucket_id = 'media');
-create policy "media_update" on storage.objects for update to authenticated using (bucket_id = 'media' and owner = auth.uid()::text);
-create policy "media_delete" on storage.objects for delete to authenticated using (bucket_id = 'media' and owner = auth.uid()::text);
+drop policy if exists "media_select" on storage.objects;
+drop policy if exists "media_insert" on storage.objects;
+drop policy if exists "media_update" on storage.objects;
+drop policy if exists "media_delete" on storage.objects;
+
+create policy "media_select" on storage.objects
+  for select using (bucket_id = 'media');
+create policy "media_insert" on storage.objects
+  for insert to authenticated with check (bucket_id = 'media');
+create policy "media_update" on storage.objects
+  for update to authenticated using (
+    bucket_id = 'media' and owner::uuid = auth.uid()
+  );
+create policy "media_delete" on storage.objects
+  for delete to authenticated using (
+    bucket_id = 'media' and owner::uuid = auth.uid()
+  );
 
 -- ── REALTIME ──────────────────────────────────────────────────────────────
 alter publication supabase_realtime add table public.messages;
