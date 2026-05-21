@@ -2,269 +2,210 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
-import { Search as SearchIcon, MapPin, Loader2, XCircle, Zap } from 'lucide-react';
+import { Search as SearchIcon, Zap, MapPin, Loader2, X, UserPlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { debounce } from '../lib/utils';
 
 export default function Search() {
-  const { user, profile: me } = useAuth();
+  const { user } = useAuth();
   const { showToast } = useToast();
-  const [profiles, setProfiles]         = useState<any[]>([]);
-  const [loading, setLoading]           = useState(false);
-  const [searchQuery, setSearchQuery]   = useState('');
-  const [filter, setFilter]             = useState('all');
-  const [selectedProfile, setSelectedProfile] = useState<any>(null);
-  const [sendingSwap, setSendingSwap]   = useState<string | null>(null);
+  const [query, setQuery]       = useState('');
+  const [filter, setFilter]     = useState<'all'|'know'|'learn'>('all');
+  const [results, setResults]   = useState<any[]>([]);
+  const [loading, setLoading]   = useState(false);
+  const [selected, setSelected] = useState<any>(null);
+  const [sending, setSending]   = useState(false);
+  const [skills, setSkills]     = useState<any[]>([]);
 
-  const filters = [
-    { key: 'all', label: 'All' },
-    { key: 'skills', label: 'Knows' },
-    { key: 'learning', label: 'Learning' },
-    { key: 'location', label: 'Location' },
-  ];
+  useEffect(() => { supabase.from('skills').select('*').order('name').then(({ data }) => setSkills(data ?? [])); }, []);
 
-  // ── fetch ─────────────────────────────────────────────────────────────────
-  const fetchProfiles = useCallback(async (query: string, filterKey: string) => {
+  const search = useCallback(async (q: string, f: string) => {
     setLoading(true);
     try {
-      let q = supabase
+      let qb = supabase
         .from('profiles')
-        .select(`
-          *,
-          user_skills (
-            id, type, skill_id,
-            skills ( id, name, category )
-          )
-        `)
+        .select('*, user_skills(type, skills(id,name,category))')
         .neq('id', user?.id ?? '');
 
-      if (query) {
-        if (filterKey === 'location') {
-          q = q.ilike('location', `%${query}%`);
-        } else if (filterKey === 'username') {
-          q = q.ilike('username', `%${query}%`);
-        } else {
-          q = q.or(`name.ilike.%${query}%,username.ilike.%${query}%,location.ilike.%${query}%`);
-        }
+      if (q.trim()) {
+        qb = qb.or(`name.ilike.%${q}%,username.ilike.%${q}%,bio.ilike.%${q}%`);
       }
 
-      const { data, error } = await q.limit(40);
+      const { data, error } = await qb.limit(30);
       if (error) throw error;
 
-      let results = data ?? [];
-
-      // Client-side filter for skill searches
-      if (query && (filterKey === 'skills' || filterKey === 'learning')) {
-        const type = filterKey === 'skills' ? 'know' : 'learn';
-        results = results.filter(p =>
-          p.user_skills?.some((s: any) =>
-            s.type === type && s.skills?.name?.toLowerCase().includes(query.toLowerCase())
-          )
-        );
+      let filtered = data ?? [];
+      if (f !== 'all') {
+        filtered = filtered.filter((u: any) => u.user_skills?.some((s: any) => s.type === f));
       }
-
-      setProfiles(results);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  }, [user?.id]);
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const debouncedFetch = useCallback(debounce((q: string, f: string) => fetchProfiles(q, f), 350), [fetchProfiles]);
+      setResults(filtered);
+    } catch (e: any) { showToast(e.message, 'error'); }
+    finally { setLoading(false); }
+  }, [user?.id, showToast]);
 
   useEffect(() => {
-    debouncedFetch(searchQuery, filter);
-  }, [searchQuery, filter, debouncedFetch]);
+    const t = setTimeout(() => search(query, filter), 300);
+    return () => clearTimeout(t);
+  }, [query, filter, search]);
 
-  const sendSwap = async (toUserId: string, skillId?: string, skillName?: string) => {
-    if (!me) return;
-    setSendingSwap(toUserId);
+  const sendSwap = async (toUser: any, skillId?: string) => {
+    if (!user) return;
+    setSending(true);
     const { error } = await supabase.from('swap_requests').insert({
-      from_user: me.id,
-      to_user: toUserId,
-      skill_id: skillId ?? null,
-      status: 'pending',
+      from_user: user.id, to_user: toUser.id,
+      skill_id: skillId ?? null, status: 'pending',
     });
-    if (error) showToast('Failed to send request', 'error');
-    else showToast('Swap request sent! 🎉', 'success');
-    setSendingSwap(null);
-    setSelectedProfile(null);
+    if (error) showToast(error.message === 'duplicate key' ? 'Already sent a request!' : error.message, 'error');
+    else { showToast(`Swap request sent to ${toUser.name}! 🤝`, 'success'); setSelected(null); }
+    setSending(false);
   };
 
+  const pills = [
+    { key: 'all',   label: 'Everyone' },
+    { key: 'know',  label: 'Teaching' },
+    { key: 'learn', label: 'Learning' },
+  ] as const;
+
   return (
-    <main className="pt-24 pb-32 px-4 max-w-6xl mx-auto">
-      {/* Search bar */}
-      <div className="mb-8 space-y-4">
-        <div className="relative">
-          <SearchIcon className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-white/35" />
+    <main className="max-w-2xl mx-auto px-4 pt-20 pb-32">
+      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', stiffness: 300, damping: 28 }}>
+        <h1 className="font-headline text-3xl font-black text-white tracking-tight mb-1">Explore</h1>
+        <p className="text-white/38 text-sm mb-6">Find your next skill partner</p>
+
+        {/* Search bar */}
+        <div className="relative mb-4">
+          <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
           <input
-            className="glass-input w-full rounded-2xl pl-14 pr-5 py-4 text-sm"
-            placeholder="Search people, skills, locations…"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
+            className="glass-input rounded-2xl pl-11 pr-10 py-3.5 text-sm"
+            placeholder="Search by name, username, or skill…"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
           />
-          {searchQuery && (
-            <button onClick={() => setSearchQuery('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-white/35 hover:text-white transition-colors">
-              <XCircle className="w-5 h-5" />
-            </button>
-          )}
+          {query && <button onClick={() => setQuery('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60"><X className="w-4 h-4" /></button>}
         </div>
 
-        <div className="flex gap-2 flex-wrap">
-          {filters.map(f => (
-            <button
-              key={f.key}
-              onClick={() => setFilter(f.key)}
-              className={`tag-pill cursor-pointer transition-all ${filter === f.key ? 'active' : ''}`}
-            >
-              {f.label}
-            </button>
+        {/* Filter pills */}
+        <div className="flex gap-2 mb-6 overflow-x-auto pb-1 custom-scrollbar">
+          {pills.map(p => (
+            <button key={p.key} onClick={() => setFilter(p.key)} className={`tag-pill flex-shrink-0 ${filter === p.key ? 'active' : ''}`}>{p.label}</button>
           ))}
         </div>
-      </div>
+      </motion.div>
 
       {/* Results */}
       {loading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="glass-card rounded-2xl p-6 space-y-4">
-              <div className="flex gap-3 items-center">
-                <div className="w-14 h-14 rounded-full shimmer" />
-                <div className="flex-1 space-y-2"><div className="w-3/4 h-4 rounded shimmer" /><div className="w-1/2 h-3 rounded shimmer" /></div>
-              </div>
-              <div className="w-full h-10 rounded-xl shimmer" />
+        <div className="space-y-3">
+          {[1,2,3,4].map(i => (
+            <div key={i} className="glass-card rounded-2xl p-4 flex gap-3">
+              <div className="w-12 h-12 rounded-full shimmer flex-shrink-0" />
+              <div className="flex-1 space-y-2"><div className="w-32 h-3 shimmer rounded-full" /><div className="w-48 h-2.5 shimmer rounded-full" /></div>
             </div>
           ))}
         </div>
-      ) : profiles.length === 0 ? (
-        <div className="text-center py-20 glass-card rounded-3xl">
-          <SearchIcon className="w-12 h-12 text-white/15 mx-auto mb-4" />
-          <p className="text-white/40 font-medium">{searchQuery ? 'No results found.' : 'Search to find skill partners.'}</p>
+      ) : results.length === 0 ? (
+        <div className="glass-card rounded-3xl py-16 text-center">
+          <SearchIcon className="w-10 h-10 text-white/15 mx-auto mb-3" />
+          <p className="text-white/40 font-medium">No users found</p>
+          <p className="text-white/22 text-sm mt-1">Try a different search or filter</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {profiles.map(p => (
-            <motion.div
-              key={p.id}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              onClick={() => setSelectedProfile(p)}
-              className="glass-card p-6 rounded-2xl cursor-pointer hover:bg-white/[0.07] transition-all group"
-            >
-              <div className="flex gap-4 items-center mb-4">
-                <img
-                  src={p.avatar_url || `https://picsum.photos/seed/${p.id}/100`}
-                  className="w-14 h-14 rounded-full object-cover border border-white/12 transition-all group-hover:scale-105"
-                  referrerPolicy="no-referrer"
-                />
+        <div className="space-y-3">
+          {results.map((u, i) => {
+            const knows  = (u.user_skills ?? []).filter((s: any) => s.type === 'know');
+            const learns = (u.user_skills ?? []).filter((s: any) => s.type === 'learn');
+            return (
+              <motion.div
+                key={u.id}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.04, type: 'spring', stiffness: 300, damping: 28 }}
+                onClick={() => setSelected(u)}
+                className="glass-card rounded-2xl p-4 flex items-start gap-3 cursor-pointer hover:border-white/20 transition-all active:scale-[.99]"
+              >
+                <div className="w-12 h-12 rounded-full overflow-hidden border border-white/10 flex-shrink-0">
+                  {u.avatar_url ? <img src={u.avatar_url} alt={u.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" /> : <div className="w-full h-full bg-white/10 flex items-center justify-center text-white/50 font-black">{u.name?.[0]?.toUpperCase() || '?'}</div>}
+                </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-bold text-white truncate">{p.name}</p>
-                  <p className="text-xs text-white/40 truncate">@{p.username}</p>
-                  {p.location && (
-                    <p className="text-[10px] text-white/30 flex items-center gap-1 mt-0.5">
-                      <MapPin className="w-2.5 h-2.5" />{p.location}
-                    </p>
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="font-bold text-white text-sm">{u.name}</p>
+                      <p className="text-white/38 text-xs">@{u.username}</p>
+                    </div>
+                    {u.location && <p className="text-white/28 text-[10px] flex items-center gap-1 flex-shrink-0"><MapPin className="w-2.5 h-2.5" />{u.location}</p>}
+                  </div>
+                  {u.bio && <p className="text-white/50 text-xs mt-1.5 leading-snug line-clamp-2">{u.bio}</p>}
+                  {(knows.length > 0 || learns.length > 0) && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {knows.slice(0, 3).map((s: any) => (
+                        <span key={s.skills?.id} className="skill-badge px-2.5 py-1 rounded-full text-[10px] font-bold text-white/75">⚡ {s.skills?.name}</span>
+                      ))}
+                      {learns.slice(0, 2).map((s: any) => (
+                        <span key={s.skills?.id} className="skill-badge px-2.5 py-1 rounded-full text-[10px] font-bold text-white/45 bg-white/[0.03]">📖 {s.skills?.name}</span>
+                      ))}
+                    </div>
                   )}
                 </div>
-              </div>
-
-              <div className="space-y-2">
-                {p.user_skills?.filter((s: any) => s.type === 'know').slice(0, 3).length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {p.user_skills.filter((s: any) => s.type === 'know').slice(0, 3).map((s: any) => (
-                      <span key={s.id} className="text-[10px] px-2.5 py-1 rounded-full bg-white/12 border border-white/15 font-bold text-white uppercase tracking-wide">
-                        {s.skills?.name}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {p.user_skills?.filter((s: any) => s.type === 'learn').slice(0, 2).length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {p.user_skills.filter((s: any) => s.type === 'learn').slice(0, 2).map((s: any) => (
-                      <span key={s.id} className="text-[10px] px-2.5 py-1 rounded-full bg-white/[0.045] border border-white/10 font-bold text-white/55 uppercase tracking-wide">
-                        wants: {s.skills?.name}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          ))}
+              </motion.div>
+            );
+          })}
         </div>
       )}
 
-      {/* Profile Modal */}
+      {/* Profile + Swap modal */}
       <AnimatePresence>
-        {selectedProfile && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 modal-backdrop" onClick={() => setSelectedProfile(null)}>
+        {selected && (
+          <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-4 modal-backdrop" onClick={() => setSelected(null)}>
             <motion.div
-              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              initial={{ y: '100%', opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: '100%', opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 420, damping: 36 }}
               onClick={e => e.stopPropagation()}
-              className="glass-modal p-8 rounded-3xl max-w-lg w-full"
+              className="glass-modal rounded-t-3xl sm:rounded-3xl max-w-sm w-full overflow-hidden"
             >
-              <div className="flex justify-end mb-4">
-                <button onClick={() => setSelectedProfile(null)} className="text-white/40 hover:text-white transition-colors">
-                  <XCircle className="w-6 h-6" />
-                </button>
-              </div>
-
-              <div className="flex flex-col sm:flex-row gap-6 items-center sm:items-start mb-6">
-                <img
-                  src={selectedProfile.avatar_url || `https://picsum.photos/seed/${selectedProfile.id}/200`}
-                  className="w-24 h-24 rounded-full object-cover border-2 border-white/15 shadow-2xl"
-                  referrerPolicy="no-referrer"
-                />
-                <div className="text-center sm:text-left flex-1">
-                  <h2 className="text-2xl font-bold text-white">{selectedProfile.name}</h2>
-                  <p className="text-white/40 text-sm">@{selectedProfile.username}</p>
-                  {selectedProfile.location && (
-                    <p className="text-white/35 text-sm flex items-center gap-1 justify-center sm:justify-start mt-1">
-                      <MapPin className="w-3.5 h-3.5" />{selectedProfile.location}
-                    </p>
-                  )}
-                  {selectedProfile.bio && <p className="text-white/55 text-sm mt-2 leading-relaxed">{selectedProfile.bio}</p>}
+              <div className="relative z-10 p-6">
+                <div className="w-10 h-1 bg-white/12 rounded-full mx-auto mb-5 sm:hidden" />
+                <div className="flex items-start gap-4 mb-5">
+                  <div className="w-16 h-16 rounded-2xl overflow-hidden border border-white/12 flex-shrink-0">
+                    {selected.avatar_url ? <img src={selected.avatar_url} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" /> : <div className="w-full h-full bg-white/10 flex items-center justify-center text-white/50 text-2xl font-black">{selected.name?.[0]?.toUpperCase()}</div>}
+                  </div>
+                  <div>
+                    <p className="font-headline font-black text-white text-xl">{selected.name}</p>
+                    <p className="text-white/38 text-sm">@{selected.username}</p>
+                    {selected.location && <p className="text-white/28 text-xs flex items-center gap-1 mt-1"><MapPin className="w-3 h-3" />{selected.location}</p>}
+                  </div>
                 </div>
-              </div>
+                {selected.bio && <p className="text-white/55 text-sm leading-relaxed mb-5">{selected.bio}</p>}
 
-              {selectedProfile.user_skills?.length > 0 && (
-                <div className="mb-6 space-y-3">
-                  {['know', 'learn'].map(type => {
-                    const typeSkills = selectedProfile.user_skills.filter((s: any) => s.type === type);
-                    if (!typeSkills.length) return null;
-                    return (
-                      <div key={type}>
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-white/35 mb-2">
-                          {type === 'know' ? 'Knows' : 'Wants to Learn'}
-                        </p>
-                        <div className="flex flex-wrap gap-2">
-                          {typeSkills.map((s: any) => (
-                            <span key={s.id} className={`text-xs px-3 py-1.5 rounded-full font-bold uppercase tracking-wide ${
-                              type === 'know' ? 'bg-white/12 border border-white/18 text-white' : 'bg-white/[0.045] border border-white/10 text-white/55'
-                            }`}>
-                              {s.skills?.name}
-                            </span>
-                          ))}
+                {/* Skills */}
+                {(selected.user_skills ?? []).length > 0 && (
+                  <div className="space-y-3 mb-6">
+                    {['know', 'learn'].map(type => {
+                      const list = (selected.user_skills ?? []).filter((s: any) => s.type === type);
+                      if (!list.length) return null;
+                      return (
+                        <div key={type}>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-white/30 mb-2">{type === 'know' ? 'Teaches' : 'Learning'}</p>
+                          <div className="flex flex-wrap gap-2">
+                            {list.map((s: any) => (
+                              <span key={s.skills?.id} className="skill-badge px-3 py-1.5 rounded-full text-xs font-bold text-white/75">{s.skills?.name}</span>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              <button
-                onClick={() => sendSwap(
-                  selectedProfile.id,
-                  selectedProfile.user_skills?.find((s: any) => s.type === 'know')?.skill_id,
-                  selectedProfile.user_skills?.find((s: any) => s.type === 'know')?.skills?.name,
+                      );
+                    })}
+                  </div>
                 )}
-                disabled={sendingSwap === selectedProfile.id}
-                className="btn-primary w-full py-4 rounded-2xl text-sm font-bold flex items-center justify-center gap-2"
-              >
-                {sendingSwap === selectedProfile.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-                {sendingSwap === selectedProfile.id ? 'Sending…' : 'Send Swap Request'}
-              </button>
+
+                <div className="flex flex-col gap-3">
+                  <button
+                    onClick={() => sendSwap(selected)}
+                    disabled={sending}
+                    className="w-full btn-primary py-3.5 rounded-2xl text-sm font-bold flex items-center justify-center gap-2"
+                  >
+                    {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+                    {sending ? 'Sending…' : 'Send Swap Request'}
+                  </button>
+                  <button onClick={() => setSelected(null)} className="w-full btn-glass py-3.5 rounded-2xl text-sm font-bold">Close</button>
+                </div>
+              </div>
             </motion.div>
           </div>
         )}

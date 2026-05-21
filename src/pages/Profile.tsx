@@ -3,303 +3,175 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../hooks/useToast';
 import { format } from 'date-fns';
-import {
-  LogOut, Edit2, PlusCircle, XCircle, MapPin,
-  Camera, Loader2, Grid, Bookmark, Trash2, Check,
-  Plus, X, Search,
-} from 'lucide-react';
+import { LogOut, Edit2, MapPin, Camera, Loader2, Grid, Bookmark, Trash2, Check, Plus, X, Search, XCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function Profile() {
   const { user, profile, loading: authLoading, signOut, refreshProfile } = useAuth();
   const { showToast } = useToast();
 
-  const [posts, setPosts]                     = useState<any[]>([]);
-  const [savedPosts, setSavedPosts]           = useState<any[]>([]);
-  const [knowSkills, setKnowSkills]           = useState<any[]>([]);
-  const [learnSkills, setLearnSkills]         = useState<any[]>([]);
-  const [availableSkills, setAvailableSkills] = useState<any[]>([]);
-  const [activeTab, setActiveTab]             = useState<'posts' | 'saved'>('posts');
-  const [isEditing, setIsEditing]             = useState(false);
-  const [showSkillModal, setShowSkillModal]   = useState<'know' | 'learn' | null>(null);
-  const [selectedPost, setSelectedPost]       = useState<any>(null);
-  const [postToDelete, setPostToDelete]       = useState<any>(null);
-  const [newSkillName, setNewSkillName]       = useState('');
-  const [skillSearch, setSkillSearch]         = useState('');
-  const [avatarFile, setAvatarFile]           = useState<File | null>(null);
-  const [avatarPreview, setAvatarPreview]     = useState<string | null>(null);
-  const [saving, setSaving]                   = useState(false);
-  const [swapCount, setSwapCount]             = useState(0);
-  const [editForm, setEditForm]               = useState({ name: '', username: '', bio: '', location: '' });
-  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const [posts, setPosts]           = useState<any[]>([]);
+  const [saved, setSaved]           = useState<any[]>([]);
+  const [knowSkills, setKnowSkills] = useState<any[]>([]);
+  const [learnSkills, setLearnSkills] = useState<any[]>([]);
+  const [allSkills, setAllSkills]   = useState<any[]>([]);
+  const [tab, setTab]               = useState<'posts'|'saved'>('posts');
+  const [editing, setEditing]       = useState(false);
+  const [skillModal, setSkillModal] = useState<'know'|'learn'|null>(null);
+  const [selectedPost, setSelectedPost] = useState<any>(null);
+  const [deletingPost, setDeletingPost] = useState<any>(null);
+  const [skillSearch, setSkillSearch]   = useState('');
+  const [newSkillName, setNewSkillName] = useState('');
+  const [avatarFile, setAvatarFile] = useState<File|null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string|null>(null);
+  const [saving, setSaving]         = useState(false);
+  const [swapCount, setSwapCount]   = useState(0);
+  const [form, setForm]             = useState({ name:'', username:'', bio:'', location:'' });
+  const avatarRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (profile) {
-      setEditForm({ name: profile.name, username: profile.username, bio: profile.bio || '', location: profile.location || 'Remote' });
-      fetchContent();
-      fetchSaved();
-      fetchSwapCount();
-    }
-    fetchAvailableSkills();
+    if (!profile) return;
+    setForm({ name: profile.name, username: profile.username, bio: profile.bio || '', location: profile.location || '' });
+    loadAll();
+    supabase.from('skills').select('*').order('name').then(({ data }) => setAllSkills(data ?? []));
   }, [profile?.id]);
 
-  const fetchContent = async () => {
+  const loadAll = async () => {
     if (!user) return;
-    const [{ data: postsData }, { data: skillsData }] = await Promise.all([
+    const [{ data: postsData }, { data: skillsData }, { data: savedData }, { count }] = await Promise.all([
       supabase.from('posts').select('*, post_media(*), post_likes(user_id)').eq('user_id', user.id).order('created_at', { ascending: false }),
       supabase.from('user_skills').select('*, skills(*)').eq('user_id', user.id),
+      supabase.from('saved_posts').select('posts(*, post_media(*), profiles(name,username,avatar_url))').eq('user_id', user.id),
+      supabase.from('swap_requests').select('*', { count: 'exact', head: true }).or(`from_user.eq.${user.id},to_user.eq.${user.id}`).eq('status', 'accepted'),
     ]);
     setPosts(postsData ?? []);
     setKnowSkills((skillsData ?? []).filter(s => s.type === 'know'));
     setLearnSkills((skillsData ?? []).filter(s => s.type === 'learn'));
-  };
-
-  const fetchSaved = async () => {
-    if (!user) return;
-    const { data } = await supabase
-      .from('saved_posts')
-      .select('posts(*, post_media(*), profiles(name, username, avatar_url))')
-      .eq('user_id', user.id);
-    setSavedPosts((data ?? []).map((s: any) => s.posts).filter(Boolean));
-  };
-
-  const fetchSwapCount = async () => {
-    if (!user) return;
-    const { count } = await supabase
-      .from('swap_requests')
-      .select('*', { count: 'exact', head: true })
-      .or(`from_user.eq.${user.id},to_user.eq.${user.id}`)
-      .eq('status', 'accepted');
+    setSaved((savedData ?? []).map((s: any) => s.posts).filter(Boolean));
     setSwapCount(count ?? 0);
   };
 
-  const fetchAvailableSkills = async () => {
-    const { data } = await supabase.from('skills').select('*').order('name');
-    setAvailableSkills(data ?? []);
-  };
-
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setAvatarFile(file);
-    setAvatarPreview(URL.createObjectURL(file));
+    const f = e.target.files?.[0]; if (!f) return;
+    setAvatarFile(f); setAvatarPreview(URL.createObjectURL(f));
   };
 
-  const handleSaveProfile = async () => {
+  const saveProfile = async () => {
     if (!user || !profile) return;
     setSaving(true);
     try {
       let avatarUrl = profile.avatar_url;
-
       if (avatarFile) {
-        const ext = avatarFile.name.split('.').pop();
+        const ext = avatarFile.name.split('.').pop() ?? 'jpg';
         const path = `avatars/${user.id}/avatar.${ext}`;
-        const { error: uploadErr } = await supabase.storage
-          .from('media')
-          .upload(path, avatarFile, { upsert: true });
-        if (uploadErr) throw uploadErr;
-        const { data: urlData } = supabase.storage.from('media').getPublicUrl(path);
-        avatarUrl = urlData.publicUrl;
+        const { error: upErr } = await supabase.storage.from('media').upload(path, avatarFile, { upsert: true });
+        if (upErr) throw upErr;
+        const { data: ud } = supabase.storage.from('media').getPublicUrl(path);
+        avatarUrl = ud.publicUrl + `?t=${Date.now()}`;
       }
-
-      // Check username uniqueness if changed
-      if (editForm.username !== profile.username) {
-        const { data: existing } = await supabase
-          .from('profiles').select('id').eq('username', editForm.username.toLowerCase()).maybeSingle();
-        if (existing) { showToast('Username already taken', 'error'); setSaving(false); return; }
+      if (form.username !== profile.username) {
+        const { data: ex } = await supabase.from('profiles').select('id').eq('username', form.username.toLowerCase()).maybeSingle();
+        if (ex) throw new Error('Username already taken');
       }
-
       const { error } = await supabase.from('profiles').update({
-        name: editForm.name.trim(),
-        username: editForm.username.toLowerCase().trim(),
-        bio: editForm.bio.trim(),
-        location: editForm.location.trim(),
-        avatar_url: avatarUrl,
+        name: form.name.trim(), username: form.username.toLowerCase().trim(),
+        bio: form.bio.trim(), location: form.location.trim(), avatar_url: avatarUrl,
       }).eq('id', user.id);
-
       if (error) throw error;
       await refreshProfile();
-      setIsEditing(false);
-      setAvatarFile(null);
-      setAvatarPreview(null);
-      showToast('Profile updated!', 'success');
-    } catch (err: any) {
-      showToast(err.message || 'Failed to update profile', 'error');
-    } finally {
-      setSaving(false);
-    }
+      setEditing(false); setAvatarFile(null); setAvatarPreview(null);
+      showToast('Profile updated! ✨', 'success');
+    } catch (e: any) { showToast(e.message || 'Failed to save', 'error'); }
+    finally { setSaving(false); }
   };
 
-  const addSkill = async (skillId: string, type: 'know' | 'learn') => {
+  const addSkill = async (skillId: string, type: 'know'|'learn') => {
     if (!user) return;
-    const existing = [...knowSkills, ...learnSkills].find(s => s.skill_id === skillId);
-    if (existing) { showToast('Skill already added', 'info'); return; }
+    if ([...knowSkills, ...learnSkills].some(s => s.skill_id === skillId)) { showToast('Already added', 'info'); return; }
     const { error } = await supabase.from('user_skills').insert({ user_id: user.id, skill_id: skillId, type });
     if (error) showToast('Failed to add skill', 'error');
-    else { fetchContent(); showToast('Skill added!', 'success'); }
+    else { loadAll(); showToast('Skill added!', 'success'); }
   };
 
-  const createAndAddSkill = async (type: 'know' | 'learn') => {
+  const createSkill = async (type: 'know'|'learn') => {
     if (!newSkillName.trim() || !user) return;
-    // Create or find skill
-    const { data: existingSkill } = await supabase
-      .from('skills').select('id').ilike('name', newSkillName.trim()).maybeSingle();
-    let skillId = existingSkill?.id;
-    if (!skillId) {
-      const { data: created } = await supabase.from('skills').insert({ name: newSkillName.trim() }).select().single();
-      skillId = created?.id;
-    }
-    if (skillId) { await addSkill(skillId, type); setNewSkillName(''); fetchAvailableSkills(); }
+    const { data: ex } = await supabase.from('skills').select('id').ilike('name', newSkillName.trim()).maybeSingle();
+    let id = ex?.id;
+    if (!id) { const { data } = await supabase.from('skills').insert({ name: newSkillName.trim() }).select().single(); id = data?.id; }
+    if (id) { await addSkill(id, type); setNewSkillName(''); setAllSkills([]); supabase.from('skills').select('*').order('name').then(({ data }) => setAllSkills(data ?? [])); }
   };
 
-  const removeSkill = async (userSkillId: string) => {
-    const { error } = await supabase.from('user_skills').delete().eq('id', userSkillId);
-    if (error) showToast('Failed to remove skill', 'error');
-    else { fetchContent(); showToast('Skill removed', 'info'); }
+  const removeSkill = async (id: string) => {
+    await supabase.from('user_skills').delete().eq('id', id);
+    loadAll(); showToast('Skill removed', 'info');
   };
 
-  const handleDeletePost = async (postId: string) => {
-    const { error } = await supabase.from('posts').delete().eq('id', postId);
-    if (error) showToast('Failed to delete post', 'error');
-    else { setPostToDelete(null); setSelectedPost(null); fetchContent(); showToast('Post deleted', 'success'); }
+  const deletePost = async (id: string) => {
+    await supabase.from('posts').delete().eq('id', id);
+    setDeletingPost(null); setSelectedPost(null); loadAll(); showToast('Post deleted', 'success');
   };
 
-  if (authLoading) return (
-    <div className="min-h-screen flex items-center justify-center">
-      <Loader2 className="w-8 h-8 animate-spin text-white/40" />
-    </div>
-  );
+  if (authLoading) return <div className="min-h-svh flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-white/30" /></div>;
+  if (!profile) return <div className="min-h-svh flex items-center justify-center p-6"><div className="glass-card p-10 rounded-3xl text-center max-w-sm w-full"><p className="text-white/50 mb-6">Profile not found</p><button onClick={signOut} className="btn-primary w-full py-4 rounded-2xl text-sm">Sign Out</button></div></div>;
 
-  if (!profile) return (
-    <div className="min-h-screen flex items-center justify-center p-6">
-      <div className="glass-card rounded-3xl p-10 text-center max-w-sm w-full">
-        <p className="text-white/60 mb-4">Profile not found. Please sign in again.</p>
-        <button onClick={signOut} className="btn-primary w-full py-4 rounded-2xl text-sm">Sign Out</button>
-      </div>
-    </div>
-  );
-
-  const displayPosts = activeTab === 'posts' ? posts : savedPosts;
-  const filteredSkills = availableSkills.filter(s =>
-    s.name.toLowerCase().includes(skillSearch.toLowerCase()) &&
-    ![...knowSkills, ...learnSkills].some(us => us.skill_id === s.id)
-  );
+  const displayPosts = tab === 'posts' ? posts : saved;
+  const filteredSkills = allSkills.filter(s => s.name.toLowerCase().includes(skillSearch.toLowerCase()) && ![...knowSkills,...learnSkills].some(us => us.skill_id === s.id));
 
   return (
-    <main className="max-w-2xl mx-auto px-4 pt-20 pb-32">
-      {/* Profile Header */}
-      <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} className="glass-card rounded-3xl p-6 mb-6 relative overflow-hidden">
+    <main className="max-w-[480px] mx-auto px-4 pt-20 pb-32">
+      {/* Header card */}
+      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', stiffness: 300, damping: 28 }} className="glass-card rounded-3xl p-5 mb-4 relative overflow-hidden">
         <div className="relative z-10">
-          {/* Avatar + Edit */}
-          <div className="flex items-start justify-between mb-5">
-            <div className="relative group">
-              <div className="w-24 h-24 rounded-3xl overflow-hidden border-2 border-white/15 shadow-2xl">
-                {avatarPreview || profile.avatar_url ? (
-                  <img src={avatarPreview || profile.avatar_url!} alt={profile.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                ) : (
-                  <div className="w-full h-full bg-white/10 flex items-center justify-center text-4xl font-black text-white/30">
-                    {profile.name[0]?.toUpperCase()}
-                  </div>
-                )}
+          {/* Avatar + actions */}
+          <div className="flex items-start justify-between mb-4">
+            <div className="relative group cursor-pointer" onClick={() => editing && avatarRef.current?.click()}>
+              <div className="w-20 h-20 rounded-2xl overflow-hidden border-2 border-white/12">
+                {avatarPreview || profile.avatar_url
+                  ? <img src={avatarPreview || profile.avatar_url!} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                  : <div className="w-full h-full bg-white/10 flex items-center justify-center text-3xl font-black text-white/30">{profile.name[0]?.toUpperCase()}</div>}
               </div>
-              {isEditing && (
-                <button
-                  onClick={() => avatarInputRef.current?.click()}
-                  className="absolute inset-0 bg-black/50 rounded-3xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                >
-                  <Camera className="w-8 h-8 text-white" />
-                </button>
-              )}
-              <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
+              {editing && <div className="absolute inset-0 bg-black/50 rounded-2xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><Camera className="w-6 h-6 text-white" /></div>}
+              <input ref={avatarRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
             </div>
-
             <div className="flex gap-2">
-              {isEditing ? (
+              {editing ? (
                 <>
-                  <button
-                    onClick={() => { setIsEditing(false); setAvatarPreview(null); setAvatarFile(null); }}
-                    className="btn-glass p-3 rounded-2xl"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                  <button
-                    onClick={handleSaveProfile}
-                    disabled={saving}
-                    className="btn-primary px-5 py-3 rounded-2xl text-sm flex items-center gap-2"
-                  >
-                    {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                    Save
-                  </button>
+                  <button onClick={() => { setEditing(false); setAvatarPreview(null); setAvatarFile(null); }} className="btn-glass p-2.5 rounded-xl"><X className="w-4 h-4" /></button>
+                  <motion.button whileTap={{ scale: 0.95 }} onClick={saveProfile} disabled={saving} className="btn-primary px-4 py-2.5 rounded-xl text-sm flex items-center gap-1.5">
+                    {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}Save
+                  </motion.button>
                 </>
               ) : (
                 <>
-                  <button onClick={() => setIsEditing(true)} className="btn-glass p-3 rounded-2xl">
-                    <Edit2 className="w-5 h-5" />
-                  </button>
-                  <button onClick={signOut} className="btn-glass p-3 rounded-2xl text-red-400/70 hover:text-red-400">
-                    <LogOut className="w-5 h-5" />
-                  </button>
+                  <button onClick={() => setEditing(true)} className="btn-glass p-2.5 rounded-xl"><Edit2 className="w-4 h-4" /></button>
+                  <button onClick={signOut} className="btn-glass p-2.5 rounded-xl !text-red-400/70 hover:!text-red-400"><LogOut className="w-4 h-4" /></button>
                 </>
               )}
             </div>
           </div>
 
-          {isEditing ? (
-            <div className="space-y-3">
-              <input
-                className="glass-input w-full rounded-2xl px-4 py-3 text-sm"
-                placeholder="Full Name"
-                value={editForm.name}
-                onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
-              />
-              <div className="relative">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 text-sm">@</span>
-                <input
-                  className="glass-input w-full rounded-2xl pl-8 pr-4 py-3 text-sm"
-                  placeholder="username"
-                  value={editForm.username}
-                  onChange={e => setEditForm(f => ({ ...f, username: e.target.value.toLowerCase().replace(/[^a-z0-9_.]/g, '') }))}
-                />
-              </div>
-              <textarea
-                className="glass-input w-full rounded-2xl px-4 py-3 text-sm resize-none"
-                placeholder="Bio…"
-                rows={3}
-                value={editForm.bio}
-                onChange={e => setEditForm(f => ({ ...f, bio: e.target.value }))}
-              />
-              <input
-                className="glass-input w-full rounded-2xl px-4 py-3 text-sm"
-                placeholder="Location"
-                value={editForm.location}
-                onChange={e => setEditForm(f => ({ ...f, location: e.target.value }))}
-              />
+          {editing ? (
+            <div className="flex flex-col gap-3">
+              <input className="glass-input rounded-2xl px-4 py-3 text-sm" placeholder="Full Name" value={form.name} onChange={e => setForm(f => ({...f, name: e.target.value}))} />
+              <div className="relative"><span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/28 text-sm">@</span><input className="glass-input rounded-2xl pl-8 pr-4 py-3 text-sm" placeholder="username" value={form.username} onChange={e => setForm(f => ({...f, username: e.target.value.toLowerCase().replace(/[^a-z0-9_.]/g,'')}))}/></div>
+              <textarea className="glass-input rounded-2xl px-4 py-3 text-sm resize-none" rows={3} placeholder="Bio…" value={form.bio} onChange={e => setForm(f => ({...f, bio: e.target.value}))} />
+              <input className="glass-input rounded-2xl px-4 py-3 text-sm" placeholder="Location" value={form.location} onChange={e => setForm(f => ({...f, location: e.target.value}))} />
             </div>
           ) : (
             <div>
-              <h2 className="text-2xl font-headline font-black text-white tracking-tight">{profile.name}</h2>
-              <p className="text-white/45 text-sm mb-1">@{profile.username}</p>
-              {profile.bio && <p className="text-white/70 text-sm leading-relaxed mt-2 mb-2">{profile.bio}</p>}
-              {profile.location && (
-                <p className="text-white/35 text-xs flex items-center gap-1.5 mt-2">
-                  <MapPin className="w-3 h-3" /> {profile.location}
-                </p>
-              )}
+              <h2 className="font-headline text-2xl font-black text-white tracking-tight">{profile.name}</h2>
+              <p className="text-white/38 text-sm mb-1">@{profile.username}</p>
+              {profile.bio && <p className="text-white/62 text-sm leading-relaxed mt-1.5 mb-1">{profile.bio}</p>}
+              {profile.location && <p className="text-white/30 text-xs flex items-center gap-1 mt-1.5"><MapPin className="w-3 h-3" />{profile.location}</p>}
             </div>
           )}
 
-          {/* Stats */}
-          {!isEditing && (
-            <div className="flex gap-6 mt-5 pt-5 border-t border-white/[0.06]">
-              {[
-                { label: 'Posts', val: posts.length },
-                { label: 'Knows', val: knowSkills.length },
-                { label: 'Learning', val: learnSkills.length },
-                { label: 'Swaps', val: swapCount },
-              ].map(stat => (
-                <div key={stat.label} className="text-center">
-                  <p className="text-xl font-headline font-black text-white">{stat.val}</p>
-                  <p className="text-white/35 text-[10px] font-bold uppercase tracking-wider">{stat.label}</p>
+          {!editing && (
+            <div className="flex gap-6 mt-4 pt-4 border-t border-white/[0.055]">
+              {[{ label: 'Posts', val: posts.length }, { label: 'Knows', val: knowSkills.length }, { label: 'Learning', val: learnSkills.length }, { label: 'Swaps', val: swapCount }].map(s => (
+                <div key={s.label} className="text-center">
+                  <p className="text-xl font-headline font-black text-white">{s.val}</p>
+                  <p className="text-white/30 text-[9px] font-black uppercase tracking-widest">{s.label}</p>
                 </div>
               ))}
             </div>
@@ -308,141 +180,75 @@ export default function Profile() {
       </motion.div>
 
       {/* Skills */}
-      {!isEditing && (
-        <div className="space-y-4 mb-6">
-          {/* Knows */}
-          <div className="glass-card rounded-3xl p-5 relative overflow-hidden">
-            <div className="relative z-10">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="font-bold text-white text-sm uppercase tracking-wider">Knows</h3>
-                <button onClick={() => setShowSkillModal('know')} className="p-2 btn-glass rounded-xl">
-                  <Plus className="w-4 h-4" />
-                </button>
-              </div>
-              {knowSkills.length === 0 ? (
-                <p className="text-white/30 text-sm">No skills added yet</p>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {knowSkills.map(s => (
-                    <span key={s.id} className="skill-badge px-4 py-2 rounded-full text-sm font-semibold text-white flex items-center gap-2">
-                      {s.skills?.name}
-                      <button onClick={() => removeSkill(s.id)} className="text-white/30 hover:text-red-400 transition-colors">
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </span>
-                  ))}
+      {!editing && (
+        <div className="space-y-3 mb-4">
+          {[{ label: 'Teaches', type: 'know' as const, list: knowSkills }, { label: 'Learning', type: 'learn' as const, list: learnSkills }].map(({ label, type, list }) => (
+            <div key={type} className="glass-card rounded-2xl p-4 relative overflow-hidden">
+              <div className="relative z-10">
+                <div className="flex justify-between items-center mb-3">
+                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/32">{label}</p>
+                  <button onClick={() => setSkillModal(type)} className="btn-glass p-1.5 rounded-lg"><Plus className="w-3.5 h-3.5" /></button>
                 </div>
-              )}
-            </div>
-          </div>
-
-          {/* Learning */}
-          <div className="glass-card rounded-3xl p-5 relative overflow-hidden">
-            <div className="relative z-10">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="font-bold text-white text-sm uppercase tracking-wider">Learning</h3>
-                <button onClick={() => setShowSkillModal('learn')} className="p-2 btn-glass rounded-xl">
-                  <Plus className="w-4 h-4" />
-                </button>
+                {list.length === 0
+                  ? <p className="text-white/22 text-xs">No skills yet — tap + to add</p>
+                  : <div className="flex flex-wrap gap-2">{list.map(s => (
+                      <span key={s.id} className="skill-badge px-3 py-1.5 rounded-full text-xs font-bold text-white/72 flex items-center gap-1.5">
+                        {s.skills?.name}
+                        <button onClick={() => removeSkill(s.id)} className="text-white/25 hover:text-red-400 transition-colors"><X className="w-3 h-3" /></button>
+                      </span>
+                    ))}</div>
+                }
               </div>
-              {learnSkills.length === 0 ? (
-                <p className="text-white/30 text-sm">No skills added yet</p>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {learnSkills.map(s => (
-                    <span key={s.id} className="skill-badge px-4 py-2 rounded-full text-sm font-semibold text-white flex items-center gap-2 border-white/5 bg-white/[0.04]">
-                      {s.skills?.name}
-                      <button onClick={() => removeSkill(s.id)} className="text-white/30 hover:text-red-400 transition-colors">
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
             </div>
-          </div>
+          ))}
         </div>
       )}
 
-      {/* Posts Grid */}
-      {!isEditing && (
+      {/* Posts grid */}
+      {!editing && (
         <div className="glass-card rounded-3xl overflow-hidden relative">
           {/* Tabs */}
-          <div className="relative z-10 flex p-1 m-3 glass rounded-full">
-            {(['posts', 'saved'] as const).map(tab => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`flex-1 py-2.5 rounded-full text-xs font-bold capitalize flex items-center justify-center gap-1.5 transition-all duration-300 ${
-                  activeTab === tab ? 'bg-white text-black shadow-[0_2px_12px_rgba(255,255,255,0.2)]' : 'text-white/40 hover:text-white/70'
-                }`}
-              >
-                {tab === 'posts' ? <Grid className="w-3.5 h-3.5" /> : <Bookmark className="w-3.5 h-3.5" />}
-                {tab}
+          <div className="relative flex p-1 m-3 glass rounded-full">
+            <motion.div layoutId="profile-tab" className="absolute top-1 bottom-1 w-[calc(50%-4px)] bg-white rounded-full"
+              animate={{ left: tab === 'posts' ? '4px' : 'calc(50%)' }}
+              transition={{ type: 'spring', stiffness: 500, damping: 35 }} />
+            {(['posts','saved'] as const).map(t => (
+              <button key={t} onClick={() => setTab(t)} className={`relative z-10 flex-1 py-2 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors duration-200 rounded-full ${tab === t ? 'text-black' : 'text-white/40 hover:text-white/70'}`}>
+                {t === 'posts' ? <Grid className="w-3.5 h-3.5" /> : <Bookmark className="w-3.5 h-3.5" />}{t}
               </button>
             ))}
           </div>
 
-          {displayPosts.length === 0 ? (
-            <div className="py-16 text-center relative z-10">
-              <p className="text-white/30 text-sm">{activeTab === 'posts' ? 'No posts yet' : 'No saved posts'}</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-3 gap-0.5 relative z-10">
-              {displayPosts.map((post: any, i: number) => {
-                const thumb = post.post_media?.[0]?.media_url;
-                return (
-                  <button
-                    key={post.id}
-                    onClick={() => setSelectedPost(post)}
-                    className="aspect-square overflow-hidden relative group post-thumb bg-white/5"
-                  >
-                    {thumb ? (
-                      <img src={thumb} alt="" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center p-3">
-                        <p className="text-white/40 text-[10px] leading-tight text-center line-clamp-4">{post.caption}</p>
-                      </div>
-                    )}
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center" />
-                  </button>
-                );
-              })}
-            </div>
-          )}
+          {displayPosts.length === 0
+            ? <div className="py-16 text-center relative z-10"><p className="text-white/28 text-sm">{tab === 'posts' ? 'No posts yet' : 'No saved posts'}</p></div>
+            : <div className="grid grid-cols-3 gap-px relative z-10">
+                {displayPosts.map((post: any, i: number) => {
+                  const thumb = post.post_media?.[0]?.media_url;
+                  return (
+                    <motion.button key={post.id} whileTap={{ scale: 0.97 }} onClick={() => setSelectedPost(post)}
+                      className="aspect-square overflow-hidden relative group bg-white/[0.03] post-thumb">
+                      {thumb ? <img src={thumb} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center p-2"><p className="text-white/35 text-[9px] leading-tight text-center line-clamp-4">{post.caption}</p></div>}
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </motion.button>
+                  );
+                })}
+              </div>
+          }
         </div>
       )}
 
-      {/* Post Detail Modal */}
+      {/* Post detail modal */}
       <AnimatePresence>
         {selectedPost && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 modal-backdrop" onClick={() => setSelectedPost(null)}>
-            <motion.div
-              initial={{ scale: 0.88, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.88, opacity: 0 }}
-              transition={{ type: 'spring', damping: 26, stiffness: 220 }}
-              onClick={e => e.stopPropagation()}
-              className="glass-modal rounded-3xl max-w-sm w-full overflow-hidden"
-            >
-              {selectedPost.post_media?.[0]?.media_url && (
-                <div className="aspect-square w-full">
-                  <img src={selectedPost.post_media[0].media_url} alt="" className="w-full h-full object-cover" />
-                </div>
-              )}
+            <motion.div initial={{ scale: 0.88, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.88, opacity: 0 }} transition={{ type: 'spring', stiffness: 420, damping: 30 }} onClick={e => e.stopPropagation()} className="glass-modal rounded-3xl max-w-sm w-full overflow-hidden">
+              {selectedPost.post_media?.[0]?.media_url && <div className="aspect-square"><img src={selectedPost.post_media[0].media_url} alt="" className="w-full h-full object-cover" /></div>}
               <div className="p-5 relative z-10">
-                <p className="text-white/80 text-sm leading-relaxed mb-4">{selectedPost.caption}</p>
-                <p className="text-white/28 text-[10px] uppercase font-bold tracking-wider mb-4">
-                  {selectedPost.created_at ? format(new Date(selectedPost.created_at), 'MMM d, yyyy') : ''}
-                </p>
+                {selectedPost.caption && <p className="text-white/72 text-sm leading-relaxed mb-3">{selectedPost.caption}</p>}
+                <p className="text-white/22 text-[10px] uppercase font-bold tracking-widest mb-4">{selectedPost.created_at ? format(new Date(selectedPost.created_at), 'MMM d, yyyy') : ''}</p>
                 <div className="flex gap-3">
-                  <button onClick={() => setSelectedPost(null)} className="flex-1 btn-glass py-3 rounded-2xl text-sm">Close</button>
-                  {selectedPost.user_id === user?.id && (
-                    <button
-                      onClick={() => { setPostToDelete(selectedPost); setSelectedPost(null); }}
-                      className="btn-glass py-3 px-4 rounded-2xl text-red-400 border-red-500/20"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  )}
+                  <button onClick={() => setSelectedPost(null)} className="flex-1 btn-glass py-3 rounded-2xl text-sm font-bold">Close</button>
+                  {selectedPost.user_id === user?.id && <button onClick={() => { setDeletingPost(selectedPost); setSelectedPost(null); }} className="btn-glass py-3 px-4 rounded-2xl !text-red-400 !border-red-500/18"><Trash2 className="w-4 h-4" /></button>}
                 </div>
               </div>
             </motion.div>
@@ -450,25 +256,18 @@ export default function Profile() {
         )}
       </AnimatePresence>
 
-      {/* Delete Post Modal */}
+      {/* Delete confirm */}
       <AnimatePresence>
-        {postToDelete && (
+        {deletingPost && (
           <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 modal-backdrop">
-            <motion.div
-              initial={{ scale: 0.88, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.88, opacity: 0 }}
-              className="glass-modal p-8 rounded-3xl max-w-sm w-full space-y-6 text-center relative overflow-hidden"
-            >
+            <motion.div initial={{ scale: 0.88, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.88, opacity: 0 }} transition={{ type: 'spring', stiffness: 420, damping: 30 }} className="glass-modal p-8 rounded-3xl max-w-sm w-full text-center">
               <div className="relative z-10">
-                <div className="w-16 h-16 bg-red-500/12 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Trash2 className="w-8 h-8 text-red-400" />
-                </div>
-                <h3 className="text-xl font-bold text-white mb-1">Delete Post?</h3>
-                <p className="text-white/45 text-sm">This action cannot be undone.</p>
-                <div className="flex flex-col gap-3 mt-6">
-                  <button onClick={() => handleDeletePost(postToDelete.id)} className="w-full bg-red-500 text-white py-3.5 rounded-full font-bold text-sm hover:bg-red-600 transition-colors">
-                    Delete Permanently
-                  </button>
-                  <button onClick={() => setPostToDelete(null)} className="w-full btn-glass py-3.5 rounded-full text-sm font-bold">Cancel</button>
+                <div className="w-14 h-14 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4"><Trash2 className="w-7 h-7 text-red-400" /></div>
+                <h3 className="text-xl font-black text-white mb-1">Delete Post?</h3>
+                <p className="text-white/40 text-sm mb-6">Cannot be undone.</p>
+                <div className="flex flex-col gap-3">
+                  <button onClick={() => deletePost(deletingPost.id)} className="w-full bg-red-500 hover:bg-red-600 text-white py-3.5 rounded-full font-bold text-sm transition-colors">Delete Permanently</button>
+                  <button onClick={() => setDeletingPost(null)} className="w-full btn-glass py-3.5 rounded-full text-sm font-bold">Cancel</button>
                 </div>
               </div>
             </motion.div>
@@ -476,73 +275,35 @@ export default function Profile() {
         )}
       </AnimatePresence>
 
-      {/* Add Skill Modal */}
+      {/* Add skill modal */}
       <AnimatePresence>
-        {showSkillModal && (
-          <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-4 modal-backdrop" onClick={() => { setShowSkillModal(null); setSkillSearch(''); setNewSkillName(''); }}>
-            <motion.div
-              initial={{ y: '100%', opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: '100%', opacity: 0 }}
-              transition={{ type: 'spring', damping: 28, stiffness: 220 }}
-              onClick={e => e.stopPropagation()}
-              className="glass-modal rounded-t-3xl sm:rounded-3xl p-6 max-w-sm w-full max-h-[80vh] flex flex-col relative overflow-hidden"
-            >
-              <div className="relative z-10 flex-1 flex flex-col min-h-0">
-                <div className="flex justify-between items-center mb-5">
-                  <h3 className="text-xl font-headline font-black text-white">
-                    Add {showSkillModal === 'know' ? 'Knowledge' : 'Learning'} Skill
-                  </h3>
-                  <button onClick={() => { setShowSkillModal(null); setSkillSearch(''); setNewSkillName(''); }} className="p-2 hover:bg-white/10 rounded-xl transition-colors">
-                    <XCircle className="w-5 h-5 text-white/40" />
-                  </button>
+        {skillModal && (
+          <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-4 modal-backdrop" onClick={() => { setSkillModal(null); setSkillSearch(''); setNewSkillName(''); }}>
+            <motion.div initial={{ y: '100%', opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: '100%', opacity: 0 }} transition={{ type: 'spring', stiffness: 420, damping: 36 }} onClick={e => e.stopPropagation()}
+              className="glass-modal rounded-t-3xl sm:rounded-3xl p-6 max-w-sm w-full max-h-[80svh] flex flex-col">
+              <div className="w-10 h-1 bg-white/12 rounded-full mx-auto mb-5 sm:hidden" />
+              <div className="relative z-10 flex flex-col min-h-0 flex-1">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-xl font-headline font-black text-white">Add {skillModal === 'know' ? 'Skill I Know' : 'Skill to Learn'}</h3>
+                  <button onClick={() => { setSkillModal(null); setSkillSearch(''); setNewSkillName(''); }}><XCircle className="w-5 h-5 text-white/35" /></button>
                 </div>
-
-                {/* Search */}
                 <div className="relative mb-3">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
-                  <input
-                    className="glass-input w-full rounded-2xl pl-10 pr-4 py-3 text-sm"
-                    placeholder="Search skills…"
-                    value={skillSearch}
-                    onChange={e => setSkillSearch(e.target.value)}
-                    autoFocus
-                  />
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/28" />
+                  <input className="glass-input rounded-2xl pl-10 pr-4 py-3 text-sm" placeholder="Search skills…" value={skillSearch} onChange={e => setSkillSearch(e.target.value)} autoFocus />
                 </div>
-
-                {/* Existing skills list */}
                 <div className="flex-1 overflow-y-auto custom-scrollbar space-y-1 mb-4 min-h-0">
-                  {filteredSkills.slice(0, 20).map(skill => (
-                    <button
-                      key={skill.id}
-                      onClick={() => addSkill(skill.id, showSkillModal!)}
-                      className="w-full text-left px-4 py-3 rounded-2xl hover:bg-white/10 text-white text-sm transition-colors flex items-center justify-between group"
-                    >
-                      <span>{skill.name}</span>
-                      <PlusCircle className="w-4 h-4 text-white/30 group-hover:text-white transition-colors" />
+                  {filteredSkills.slice(0, 25).map(s => (
+                    <button key={s.id} onClick={() => addSkill(s.id, skillModal!)} className="w-full text-left px-4 py-3 rounded-2xl hover:bg-white/8 text-white text-sm transition-colors flex items-center justify-between group">
+                      <span>{s.name}</span><Plus className="w-4 h-4 text-white/22 group-hover:text-white transition-colors" />
                     </button>
                   ))}
-                  {filteredSkills.length === 0 && skillSearch && (
-                    <p className="text-white/30 text-sm text-center py-4">No match — create it below</p>
-                  )}
+                  {filteredSkills.length === 0 && skillSearch && <p className="text-white/28 text-sm text-center py-4">No match — create it below</p>}
                 </div>
-
-                {/* Create new skill */}
                 <div className="border-t border-white/[0.07] pt-4">
-                  <p className="text-white/35 text-xs font-bold uppercase tracking-wider mb-3">Or create new skill</p>
+                  <p className="text-white/28 text-[10px] font-black uppercase tracking-widest mb-3">Create New Skill</p>
                   <div className="flex gap-2">
-                    <input
-                      className="glass-input flex-1 rounded-2xl px-4 py-3 text-sm"
-                      placeholder="Skill name…"
-                      value={newSkillName}
-                      onChange={e => setNewSkillName(e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && createAndAddSkill(showSkillModal!)}
-                    />
-                    <button
-                      onClick={() => createAndAddSkill(showSkillModal!)}
-                      disabled={!newSkillName.trim()}
-                      className="btn-primary px-4 py-3 rounded-2xl text-sm font-bold disabled:opacity-40"
-                    >
-                      <Plus className="w-4 h-4" />
-                    </button>
+                    <input className="glass-input flex-1 rounded-2xl px-4 py-3 text-sm" placeholder="Skill name…" value={newSkillName} onChange={e => setNewSkillName(e.target.value)} onKeyDown={e => e.key === 'Enter' && createSkill(skillModal!)} />
+                    <motion.button whileTap={{ scale: 0.92 }} onClick={() => createSkill(skillModal!)} disabled={!newSkillName.trim()} className="btn-primary px-4 py-3 rounded-2xl text-sm font-bold disabled:opacity-40"><Plus className="w-4 h-4" /></motion.button>
                   </div>
                 </div>
               </div>
