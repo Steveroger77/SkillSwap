@@ -15,64 +15,60 @@ type AuthContextType = {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 async function ensureProfile(user: User): Promise<Profile | null> {
-  // Try fetching existing profile first
-  const { data: existing } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .maybeSingle();
-
-  if (existing) return existing as Profile;
-
-  // Build profile from auth metadata (works for Google + email)
-  const meta = user.user_metadata ?? {};
-  const email = user.email ?? '';
-  const rawName =
-    meta.name ?? meta.full_name ?? meta.display_name ?? email.split('@')[0] ?? 'User';
-  const rawUsername =
-    meta.preferred_username ??
-    meta.user_name ??
-    email.split('@')[0] ??
-    'user';
-
-  // Sanitise username and make unique
-  let base = rawUsername.toLowerCase().replace(/[^a-z0-9_.]/g, '').slice(0, 28);
-  if (base.length < 2) base = 'user';
-  let username = base;
-  let attempt = 0;
-  while (true) {
-    const { data: clash } = await supabase
+  try {
+    // Try to get existing profile
+    const { data: existing, error: fetchErr } = await supabase
       .from('profiles')
-      .select('id')
-      .eq('username', username)
+      .select('*')
+      .eq('id', user.id)
       .maybeSingle();
-    if (!clash) break;
-    attempt++;
-    username = `${base}${attempt}`;
-  }
 
-  const newProfile = {
-    id: user.id,
-    name: rawName.trim().slice(0, 80),
-    username,
-    email,
-    bio: '',
-    avatar_url:
-      meta.avatar_url ?? meta.picture ?? meta.avatar ?? null,
-    location: 'Remote',
-  };
+    if (existing) return existing as Profile;
 
-  const { data: created, error } = await supabase
-    .from('profiles')
-    .upsert(newProfile, { onConflict: 'id' })
-    .select()
-    .single();
+    // Build from auth metadata
+    const meta = user.user_metadata ?? {};
+    const email = user.email ?? '';
+    const rawName =
+      meta.name ?? meta.full_name ?? meta.display_name ??
+      email.split('@')[0] ?? 'User';
+    const rawBase =
+      meta.preferred_username ?? meta.user_name ?? meta.username ??
+      email.split('@')[0] ?? 'user';
 
-  if (error) {
-    console.error('Profile creation error:', error);
+    let base = rawBase.toLowerCase().replace(/[^a-z0-9_.]/g, '').slice(0, 24);
+    if (base.length < 2) base = 'user';
+
+    // Find unique username
+    let username = base;
+    let n = 0;
+    while (n < 100) {
+      const { data: clash } = await supabase
+        .from('profiles').select('id').eq('username', username).maybeSingle();
+      if (!clash) break;
+      n++;
+      username = `${base}${n}`;
+    }
+
+    const { data: created, error: createErr } = await supabase
+      .from('profiles')
+      .upsert({
+        id: user.id,
+        name: String(rawName).trim().slice(0, 80),
+        username,
+        email,
+        bio: '',
+        avatar_url: meta.avatar_url ?? meta.picture ?? meta.avatar ?? null,
+        location: 'Remote',
+      }, { onConflict: 'id' })
+      .select()
+      .single();
+
+    if (createErr) { console.error('Profile upsert error:', createErr); return null; }
+    return created as Profile;
+  } catch (err) {
+    console.error('ensureProfile error:', err);
     return null;
   }
-  return created as Profile;
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -80,18 +76,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
-  const initialised = useRef(false);
+  const ready = useRef(false);
 
   const refreshProfile = useCallback(async () => {
     const { data: { user: u } } = await supabase.auth.getUser();
     if (!u) return;
     const p = await ensureProfile(u);
-    setProfile(p);
+    if (p) setProfile(p);
   }, []);
 
   useEffect(() => {
+    // Hard timeout — never stay loading more than 8 seconds
+    const timeout = setTimeout(() => {
+      setLoading(false);
+    }, 8000);
+
     // Get initial session
-    supabase.auth.getSession().then(async ({ data: { session: s } }) => {
+    supabase.auth.getSession().then(async ({ data: { session: s }, error }) => {
+      if (error) console.error('getSession error:', error);
+      clearTimeout(timeout);
       setSession(s);
       setUser(s?.user ?? null);
       if (s?.user) {
@@ -99,28 +102,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setProfile(p);
       }
       setLoading(false);
-      initialised.current = true;
+      ready.current = true;
     });
 
-    // Listen for auth changes (login, logout, token refresh, OAuth callback)
+    // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, s) => {
+        clearTimeout(timeout);
         setSession(s);
         setUser(s?.user ?? null);
 
         if (s?.user) {
-          // Always ensure profile exists — critical for Google OAuth first login
           const p = await ensureProfile(s.user);
           setProfile(p);
         } else {
           setProfile(null);
         }
-
-        if (initialised.current) setLoading(false);
+        setLoading(false);
+        ready.current = true;
       }
     );
 
-    return () => subscription.unsubscribe();
+    return () => {
+      clearTimeout(timeout);
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signOut = async () => {

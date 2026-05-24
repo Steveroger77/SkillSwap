@@ -16,15 +16,13 @@ const Messages = lazy(() => import('./pages/Messages'));
 const Requests = lazy(() => import('./pages/Requests'));
 const Hashtag  = lazy(() => import('./pages/Hashtag'));
 
-const spring = { type: 'spring', stiffness: 380, damping: 30 };
-
 function PageShell({ children }: { children: React.ReactNode }) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 10 }}
+      initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -6 }}
-      transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
     >
       {children}
     </motion.div>
@@ -33,12 +31,12 @@ function PageShell({ children }: { children: React.ReactNode }) {
 
 function Spinner() {
   return (
-    <div className="min-h-svh flex items-center justify-center">
+    <div className="fixed inset-0 flex items-center justify-center bg-surface z-[999]">
       <div className="flex flex-col items-center gap-5">
         <div className="w-14 h-14 rounded-2xl glass flex items-center justify-center">
-          <div className="w-8 h-8 border-[2.5px] border-white/15 border-t-white rounded-full animate-spin" />
+          <div className="w-7 h-7 border-2 border-white/15 border-t-white rounded-full animate-spin" />
         </div>
-        <p className="text-white/28 text-[10px] font-bold tracking-[0.3em] uppercase">Loading</p>
+        <p className="text-white/25 text-[10px] font-black uppercase tracking-[0.3em]">Loading</p>
       </div>
     </div>
   );
@@ -64,18 +62,29 @@ function AnimatedRoutes() {
 
 function AppShell() {
   const { user, loading } = useAuth();
+
+  // Show spinner while checking auth — but max 8s (timeout in useAuth)
   if (loading) return <Spinner />;
-  if (!user) return (
-    <Suspense fallback={<Spinner />}>
-      <Routes><Route path="*" element={<Auth />} /></Routes>
-    </Suspense>
-  );
+
+  // Not logged in — show auth page
+  if (!user) {
+    return (
+      <Suspense fallback={<Spinner />}>
+        <Routes>
+          <Route path="*" element={<Auth />} />
+        </Routes>
+      </Suspense>
+    );
+  }
+
+  // Logged in — show app
   return (
     <div className="min-h-svh relative overflow-x-hidden">
-      {/* Ambient background orbs */}
-      <div className="aurora-orb w-[600px] h-[600px] bg-white/[0.018] -top-40 -left-40 opacity-60" />
-      <div className="aurora-orb w-[500px] h-[500px] bg-white/[0.014] top-[45%] -right-36 opacity-45" style={{ animationDelay: '7s' }} />
-      <div className="liquid-orb  w-[320px] h-[320px] bg-white/[0.01]  bottom-[20%] left-[30%] opacity-30" style={{ animationDelay: '3s' }} />
+      {/* Ambient background */}
+      <div className="aurora-orb w-[550px] h-[550px] bg-white/[0.018] -top-48 -left-48 pointer-events-none" />
+      <div className="aurora-orb w-[450px] h-[450px] bg-white/[0.013] top-[40%] -right-36 pointer-events-none" style={{ animationDelay: '7s' }} />
+      <div className="liquid-orb  w-[300px] h-[300px] bg-white/[0.009]  bottom-[20%] left-[28%] pointer-events-none" style={{ animationDelay: '3s' }} />
+
       <Navbar />
       <Suspense fallback={<Spinner />}>
         <AnimatedRoutes />
