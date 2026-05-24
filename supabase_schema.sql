@@ -1,9 +1,8 @@
 -- ╔══════════════════════════════════════════════════════════════════╗
--- ║  SkillSwap — Complete Production Schema                         ║
--- ║  Run in: Supabase Dashboard → SQL Editor                        ║
+-- ║  SkillSwap — Complete Production Schema v3                      ║
+-- ║  Safe to re-run — drops & recreates policies, never drops data  ║
 -- ╚══════════════════════════════════════════════════════════════════╝
 
--- Enable extensions
 create extension if not exists "pgcrypto";
 
 -- ── TABLES ───────────────────────────────────────────────────────────────────
@@ -12,17 +11,17 @@ create table if not exists public.profiles (
   id          uuid primary key references auth.users(id) on delete cascade,
   name        text not null default '',
   username    text unique not null,
-  email       text default '',
-  bio         text default '',
+  email       text not null default '',
+  bio         text not null default '',
   avatar_url  text,
-  location    text default 'Remote',
-  created_at  timestamptz default now()
+  location    text not null default 'Remote',
+  created_at  timestamptz not null default now()
 );
 
 create table if not exists public.skills (
   id       uuid primary key default gen_random_uuid(),
   name     text unique not null,
-  category text default 'General'
+  category text not null default 'General'
 );
 
 create table if not exists public.user_skills (
@@ -36,9 +35,9 @@ create table if not exists public.user_skills (
 create table if not exists public.posts (
   id         uuid primary key default gen_random_uuid(),
   user_id    uuid not null references public.profiles(id) on delete cascade,
-  caption    text default '',
-  location   text default 'Remote',
-  created_at timestamptz default now()
+  caption    text not null default '',
+  location   text not null default 'Remote',
+  created_at timestamptz not null default now()
 );
 
 create table if not exists public.post_media (
@@ -66,7 +65,7 @@ create table if not exists public.comments (
   user_id    uuid not null references public.profiles(id) on delete cascade,
   content    text not null,
   parent_id  uuid references public.comments(id) on delete cascade,
-  created_at timestamptz default now()
+  created_at timestamptz not null default now()
 );
 
 create table if not exists public.swap_requests (
@@ -75,12 +74,12 @@ create table if not exists public.swap_requests (
   to_user    uuid not null references public.profiles(id) on delete cascade,
   skill_id   uuid references public.skills(id) on delete set null,
   status     text not null default 'pending' check (status in ('pending','accepted','rejected')),
-  created_at timestamptz default now()
+  created_at timestamptz not null default now()
 );
 
 create table if not exists public.chats (
   id         uuid primary key default gen_random_uuid(),
-  created_at timestamptz default now()
+  created_at timestamptz not null default now()
 );
 
 create table if not exists public.chat_participants (
@@ -95,59 +94,87 @@ create table if not exists public.messages (
   sender_id      uuid not null references public.profiles(id) on delete cascade,
   content        text not null,
   attachment_url text,
-  created_at     timestamptz default now(),
+  created_at     timestamptz not null default now(),
   edited_at      timestamptz
 );
 
--- ── INDEXES ─────────────────────────────────────────────────────────────────
-create index if not exists idx_posts_created  on public.posts(created_at desc);
-create index if not exists idx_posts_user     on public.posts(user_id);
-create index if not exists idx_likes_post     on public.post_likes(post_id);
-create index if not exists idx_likes_user     on public.post_likes(user_id);
-create index if not exists idx_saved_user     on public.saved_posts(user_id);
-create index if not exists idx_comments_post  on public.comments(post_id);
-create index if not exists idx_messages_chat  on public.messages(chat_id);
-create index if not exists idx_messages_time  on public.messages(created_at asc);
-create index if not exists idx_swap_from      on public.swap_requests(from_user);
-create index if not exists idx_swap_to        on public.swap_requests(to_user);
-create index if not exists idx_skills_user    on public.user_skills(user_id);
-create index if not exists idx_profiles_user  on public.profiles(username);
+-- ── INDEXES ──────────────────────────────────────────────────────────────────
+create index if not exists idx_posts_created   on public.posts(created_at desc);
+create index if not exists idx_posts_user      on public.posts(user_id);
+create index if not exists idx_likes_post      on public.post_likes(post_id);
+create index if not exists idx_likes_user      on public.post_likes(user_id);
+create index if not exists idx_saved_user      on public.saved_posts(user_id);
+create index if not exists idx_comments_post   on public.comments(post_id);
+create index if not exists idx_messages_chat   on public.messages(chat_id);
+create index if not exists idx_messages_time   on public.messages(created_at asc);
+create index if not exists idx_swap_from       on public.swap_requests(from_user);
+create index if not exists idx_swap_to         on public.swap_requests(to_user);
+create index if not exists idx_user_skills_uid on public.user_skills(user_id);
+create index if not exists idx_profiles_uname  on public.profiles(username);
 
--- ── AUTO-CREATE PROFILE ON SIGNUP ────────────────────────────────────────────
+-- ── AUTO-CREATE PROFILE TRIGGER ──────────────────────────────────────────────
 create or replace function public.handle_new_user()
-returns trigger language plpgsql security definer set search_path = public as $$
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
 declare
-  _name     text;
-  _username text;
-  _base     text;
-  _counter  int := 0;
-  _try      text;
+  v_name     text;
+  v_base     text;
+  v_username text;
+  v_try      text;
+  v_n        int := 0;
 begin
-  _name := coalesce(
-    new.raw_user_meta_data->>'name',
-    new.raw_user_meta_data->>'full_name',
-    split_part(new.email, '@', 1),
+  -- Derive display name
+  v_name := coalesce(
+    nullif(trim(new.raw_user_meta_data->>'name'), ''),
+    nullif(trim(new.raw_user_meta_data->>'full_name'), ''),
+    nullif(trim(new.raw_user_meta_data->>'display_name'), ''),
+    split_part(coalesce(new.email,''), '@', 1),
     'User'
   );
-  _base := lower(regexp_replace(
-    coalesce(new.raw_user_meta_data->>'username', split_part(new.email, '@', 1), 'user'),
+
+  -- Derive base username from metadata or email
+  v_base := lower(regexp_replace(
+    coalesce(
+      nullif(trim(new.raw_user_meta_data->>'preferred_username'), ''),
+      nullif(trim(new.raw_user_meta_data->>'user_name'), ''),
+      nullif(trim(new.raw_user_meta_data->>'username'), ''),
+      split_part(coalesce(new.email,'user@x'), '@', 1)
+    ),
     '[^a-z0-9_.]', '', 'g'
   ));
-  if length(_base) < 2 then _base := 'user'; end if;
-  _try := _base;
-  -- ensure unique username
+  if length(v_base) < 2 then v_base := 'user'; end if;
+  v_base := left(v_base, 24);
+
+  -- Find unique username
+  v_try := v_base;
   loop
-    exit when not exists (select 1 from public.profiles where username = _try);
-    _counter := _counter + 1;
-    _try := _base || _counter::text;
+    exit when not exists (select 1 from public.profiles where username = v_try);
+    v_n := v_n + 1;
+    v_try := v_base || v_n::text;
+    exit when v_n > 999;
   end loop;
+  v_username := v_try;
 
   insert into public.profiles (id, name, username, email, avatar_url)
   values (
-    new.id, _name, _try, coalesce(new.email, ''),
-    coalesce(new.raw_user_meta_data->>'avatar_url', new.raw_user_meta_data->>'picture')
+    new.id,
+    left(v_name, 80),
+    v_username,
+    coalesce(new.email, ''),
+    coalesce(
+      new.raw_user_meta_data->>'avatar_url',
+      new.raw_user_meta_data->>'picture',
+      new.raw_user_meta_data->>'avatar'
+    )
   )
-  on conflict (id) do nothing;
+  on conflict (id) do update
+    set
+      name       = excluded.name,
+      avatar_url = coalesce(excluded.avatar_url, profiles.avatar_url);
+
   return new;
 end;
 $$;
@@ -157,7 +184,7 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
 
--- ── RLS ─────────────────────────────────────────────────────────────────────
+-- ── RLS ──────────────────────────────────────────────────────────────────────
 alter table public.profiles          enable row level security;
 alter table public.skills            enable row level security;
 alter table public.user_skills       enable row level security;
@@ -178,19 +205,19 @@ do $$ declare r record; begin
   end loop;
 end $$;
 
--- profiles — readable by all authenticated, writable by owner
+-- profiles
 create policy "profiles_select" on public.profiles for select using (auth.role() = 'authenticated');
 create policy "profiles_insert" on public.profiles for insert with check (id = auth.uid());
 create policy "profiles_update" on public.profiles for update using (id = auth.uid());
 
--- skills — anyone authenticated can read or insert
+-- skills (open read, authenticated write)
 create policy "skills_select" on public.skills for select using (auth.role() = 'authenticated');
 create policy "skills_insert" on public.skills for insert with check (auth.role() = 'authenticated');
 
 -- user_skills
-create policy "user_skills_select" on public.user_skills for select using (auth.role() = 'authenticated');
-create policy "user_skills_insert" on public.user_skills for insert with check (user_id = auth.uid());
-create policy "user_skills_delete" on public.user_skills for delete using (user_id = auth.uid());
+create policy "uskills_select" on public.user_skills for select using (auth.role() = 'authenticated');
+create policy "uskills_insert" on public.user_skills for insert with check (user_id = auth.uid());
+create policy "uskills_delete" on public.user_skills for delete using (user_id = auth.uid());
 
 -- posts
 create policy "posts_select" on public.posts for select using (auth.role() = 'authenticated');
@@ -199,21 +226,21 @@ create policy "posts_update" on public.posts for update using (user_id = auth.ui
 create policy "posts_delete" on public.posts for delete using (user_id = auth.uid());
 
 -- post_media
-create policy "post_media_select" on public.post_media for select using (auth.role() = 'authenticated');
-create policy "post_media_insert" on public.post_media for insert with check (auth.role() = 'authenticated');
-create policy "post_media_delete" on public.post_media for delete using (
+create policy "pmedia_select" on public.post_media for select using (auth.role() = 'authenticated');
+create policy "pmedia_insert" on public.post_media for insert with check (auth.role() = 'authenticated');
+create policy "pmedia_delete" on public.post_media for delete using (
   exists (select 1 from public.posts where id = post_media.post_id and user_id = auth.uid())
 );
 
 -- post_likes
-create policy "post_likes_select" on public.post_likes for select using (auth.role() = 'authenticated');
-create policy "post_likes_insert" on public.post_likes for insert with check (user_id = auth.uid());
-create policy "post_likes_delete" on public.post_likes for delete using (user_id = auth.uid());
+create policy "plikes_select" on public.post_likes for select using (auth.role() = 'authenticated');
+create policy "plikes_insert" on public.post_likes for insert with check (user_id = auth.uid());
+create policy "plikes_delete" on public.post_likes for delete using (user_id = auth.uid());
 
 -- saved_posts
-create policy "saved_posts_select" on public.saved_posts for select using (user_id = auth.uid());
-create policy "saved_posts_insert" on public.saved_posts for insert with check (user_id = auth.uid());
-create policy "saved_posts_delete" on public.saved_posts for delete using (user_id = auth.uid());
+create policy "saved_select" on public.saved_posts for select using (user_id = auth.uid());
+create policy "saved_insert" on public.saved_posts for insert with check (user_id = auth.uid());
+create policy "saved_delete" on public.saved_posts for delete using (user_id = auth.uid());
 
 -- comments
 create policy "comments_select" on public.comments for select using (auth.role() = 'authenticated');
@@ -232,8 +259,8 @@ create policy "chats_select" on public.chats for select using (
 create policy "chats_insert" on public.chats for insert with check (auth.role() = 'authenticated');
 
 -- chat_participants
-create policy "chat_participants_select" on public.chat_participants for select using (auth.role() = 'authenticated');
-create policy "chat_participants_insert" on public.chat_participants for insert with check (auth.role() = 'authenticated');
+create policy "chatparts_select" on public.chat_participants for select using (auth.role() = 'authenticated');
+create policy "chatparts_insert" on public.chat_participants for insert with check (auth.role() = 'authenticated');
 
 -- messages
 create policy "messages_select" on public.messages for select using (
@@ -241,10 +268,16 @@ create policy "messages_select" on public.messages for select using (
 );
 create policy "messages_insert" on public.messages for insert with check (sender_id = auth.uid());
 
--- ── STORAGE ─────────────────────────────────────────────────────────────────
+-- ── STORAGE ──────────────────────────────────────────────────────────────────
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-values ('media', 'media', true, 52428800, array['image/jpeg','image/png','image/webp','image/gif','video/mp4','video/webm'])
-on conflict (id) do update set public = true, file_size_limit = 52428800;
+values (
+  'media', 'media', true, 52428800,
+  array['image/jpeg','image/jpg','image/png','image/webp','image/gif','video/mp4','video/webm','video/quicktime']
+)
+on conflict (id) do update set
+  public = true,
+  file_size_limit = 52428800,
+  allowed_mime_types = array['image/jpeg','image/jpg','image/png','image/webp','image/gif','video/mp4','video/webm','video/quicktime'];
 
 drop policy if exists "media_select" on storage.objects;
 drop policy if exists "media_insert" on storage.objects;
@@ -256,28 +289,34 @@ create policy "media_insert" on storage.objects for insert to authenticated with
 create policy "media_update" on storage.objects for update to authenticated using (bucket_id = 'media');
 create policy "media_delete" on storage.objects for delete to authenticated using (bucket_id = 'media');
 
--- ── REALTIME ────────────────────────────────────────────────────────────────
+-- ── REALTIME ─────────────────────────────────────────────────────────────────
 do $$ begin
-  begin alter publication supabase_realtime add table public.messages; exception when others then null; end;
-  begin alter publication supabase_realtime add table public.posts; exception when others then null; end;
-  begin alter publication supabase_realtime add table public.post_likes; exception when others then null; end;
-  begin alter publication supabase_realtime add table public.comments; exception when others then null; end;
+  begin alter publication supabase_realtime add table public.messages;      exception when others then null; end;
+  begin alter publication supabase_realtime add table public.posts;         exception when others then null; end;
+  begin alter publication supabase_realtime add table public.post_likes;    exception when others then null; end;
+  begin alter publication supabase_realtime add table public.comments;      exception when others then null; end;
   begin alter publication supabase_realtime add table public.swap_requests; exception when others then null; end;
-  begin alter publication supabase_realtime add table public.saved_posts; exception when others then null; end;
+  begin alter publication supabase_realtime add table public.saved_posts;   exception when others then null; end;
 end $$;
 
--- ── SEED SKILLS ─────────────────────────────────────────────────────────────
+-- ── SEED SKILLS ──────────────────────────────────────────────────────────────
 insert into public.skills (name, category) values
-  ('React','Frontend'),('TypeScript','Programming'),('Python','Programming'),
-  ('JavaScript','Frontend'),('Node.js','Backend'),('PostgreSQL','Database'),
-  ('Figma','Design'),('UI/UX Design','Design'),('Graphic Design','Design'),
-  ('Machine Learning','AI/ML'),('Data Analysis','Data'),('Excel','Data'),
-  ('Photography','Creative'),('Video Editing','Creative'),('Illustration','Creative'),
-  ('Copywriting','Writing'),('Content Writing','Writing'),('SEO','Marketing'),
-  ('Digital Marketing','Marketing'),('Social Media','Marketing'),
-  ('Spanish','Language'),('French','Language'),('German','Language'),('Japanese','Language'),
-  ('Guitar','Music'),('Piano','Music'),('Singing','Music'),
-  ('3D Modeling','Design'),('Flutter','Mobile'),('Swift','Mobile'),('Kotlin','Mobile'),
-  ('Vue.js','Frontend'),('AWS','Cloud'),('Docker','DevOps'),('Git','DevOps'),
-  ('Public Speaking','Soft Skills'),('Leadership','Soft Skills'),('Project Management','Soft Skills')
+  ('React','Frontend'),('Vue.js','Frontend'),('Angular','Frontend'),
+  ('TypeScript','Programming'),('JavaScript','Programming'),('Python','Programming'),
+  ('Node.js','Backend'),('Go','Backend'),('Rust','Programming'),
+  ('PostgreSQL','Database'),('MongoDB','Database'),('Redis','Database'),
+  ('Figma','Design'),('UI/UX Design','Design'),('Graphic Design','Design'),('Illustration','Creative'),
+  ('Machine Learning','AI/ML'),('Data Analysis','Data'),('Excel','Data'),('Tableau','Data'),
+  ('Photography','Creative'),('Video Editing','Creative'),('3D Modeling','Design'),
+  ('Copywriting','Writing'),('Content Writing','Writing'),('Technical Writing','Writing'),
+  ('SEO','Marketing'),('Digital Marketing','Marketing'),('Social Media','Marketing'),
+  ('Spanish','Language'),('French','Language'),('German','Language'),('Japanese','Language'),('Mandarin','Language'),
+  ('Guitar','Music'),('Piano','Music'),('Singing','Music'),('Music Production','Music'),
+  ('Flutter','Mobile'),('Swift','Mobile'),('Kotlin','Mobile'),('React Native','Mobile'),
+  ('AWS','Cloud'),('Docker','DevOps'),('Kubernetes','DevOps'),('Git','DevOps'),('Linux','DevOps'),
+  ('Public Speaking','Soft Skills'),('Leadership','Soft Skills'),('Project Management','Soft Skills'),
+  ('Yoga','Wellness'),('Cooking','Lifestyle'),('Drawing','Creative')
 on conflict (name) do nothing;
+
+-- ── SUCCESS MESSAGE ───────────────────────────────────────────────────────────
+select 'SkillSwap schema v3 installed successfully! 🚀' as status;
