@@ -2,15 +2,5 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": "vite",
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
-  "env": {
-    "VITE_SUPABASE_URL": "https://gsgftpmlhvwrmzhznylj.supabase.co",
-    "VITE_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdzZ2Z0cG1saHZ3cm16aHpueWxqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0OTExMTYsImV4cCI6MjA5MTA2NzExNn0.Yyw8mKpLo463XDRtmwacR0GoLMzQU3-pkkqdidUxm_w"
-  },
-  "build": {
-    "env": {
-      "VITE_SUPABASE_URL": "https://gsgftpmlhvwrmzhznylj.supabase.co",
-      "VITE_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdzZ2Z0cG1saHZ3cm16aHpueWxqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0OTExMTYsImV4cCI6MjA5MTA2NzExNn0.Yyw8mKpLo463XDRtmwacR0GoLMzQU3-pkkqdidUxm_w"
-    }
-  }
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }

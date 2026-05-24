@@ -1,26 +1,22 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl     = import.meta.env.VITE_SUPABASE_URL as string;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+// These are public/anon credentials — safe to hardcode in frontend
+const SUPABASE_URL     = 'https://gsgftpmlhvwrmzhznylj.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdzZ2Z0cG1saHZ3cm16aHpueWxqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0OTExMTYsImV4cCI6MjA5MTA2NzExNn0.Yyw8mKpLo463XDRtmwacR0GoLMzQU3-pkkqdidUxm_w';
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('❌ Missing Supabase env vars. Check VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY');
-}
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
-    persistSession:      true,
-    autoRefreshToken:    true,
-    detectSessionInUrl:  true,  // REQUIRED for OAuth redirect
-    storageKey:          'skillswap-auth',
-    flowType:            'pkce',   // More secure for SPAs
+    persistSession:     true,
+    autoRefreshToken:   true,
+    detectSessionInUrl: true,
+    storageKey:         'skillswap-auth',
+    flowType:           'pkce',
   },
   realtime: {
     params: { eventsPerSecond: 10 },
   },
 });
 
-/** Upload a post image/video, returns { media_url, media_type } */
 export async function uploadPostMedia(
   userId: string,
   file: File
@@ -36,7 +32,6 @@ export async function uploadPostMedia(
   };
 }
 
-/** Upload avatar, returns public URL */
 export async function uploadAvatar(userId: string, file: File): Promise<string> {
   const ext  = file.name.split('.').pop() ?? 'jpg';
   const path = `avatars/${userId}/avatar.${ext}`;
