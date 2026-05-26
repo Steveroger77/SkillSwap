@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { ToastProvider } from './hooks/useToast';
@@ -16,44 +16,40 @@ const Messages = lazy(() => import('./pages/Messages'));
 const Requests = lazy(() => import('./pages/Requests'));
 const Hashtag  = lazy(() => import('./pages/Hashtag'));
 
-function PageShell({ children }: { children: React.ReactNode }) {
+function Spinner({ label = 'Loading' }: { label?: string }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-    >
+    <div className="fixed inset-0 flex items-center justify-center" style={{ background: '#060606', zIndex: 9999 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20 }}>
+        <div style={{ width: 52, height: 52, borderRadius: 14, background: 'rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid rgba(255,255,255,0.1)' }}>
+          <div style={{ width: 28, height: 28, borderRadius: '50%', border: '2.5px solid rgba(255,255,255,0.12)', borderTopColor: '#fff', animation: 'spin .7s linear infinite' }} />
+        </div>
+        <p style={{ color: 'rgba(255,255,255,0.22)', fontSize: 10, fontWeight: 700, letterSpacing: '0.3em', textTransform: 'uppercase' }}>{label}</p>
+      </div>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
+}
+
+function PageWrap({ children }: { children: React.ReactNode }) {
+  return (
+    <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}>
       {children}
     </motion.div>
   );
 }
 
-function Spinner() {
-  return (
-    <div className="fixed inset-0 flex items-center justify-center bg-surface z-[999]">
-      <div className="flex flex-col items-center gap-5">
-        <div className="w-14 h-14 rounded-2xl glass flex items-center justify-center">
-          <div className="w-7 h-7 border-2 border-white/15 border-t-white rounded-full animate-spin" />
-        </div>
-        <p className="text-white/25 text-[10px] font-black uppercase tracking-[0.3em]">Loading</p>
-      </div>
-    </div>
-  );
-}
-
 function AnimatedRoutes() {
-  const location = useLocation();
+  const { pathname } = useLocation();
   return (
     <AnimatePresence mode="wait">
-      <Routes location={location} key={location.pathname}>
-        <Route path="/"             element={<PageShell><Feed /></PageShell>} />
-        <Route path="/search"       element={<PageShell><Search /></PageShell>} />
-        <Route path="/swap"         element={<PageShell><Swap /></PageShell>} />
-        <Route path="/profile"      element={<PageShell><Profile /></PageShell>} />
-        <Route path="/messages"     element={<PageShell><Messages /></PageShell>} />
-        <Route path="/requests"     element={<PageShell><Requests /></PageShell>} />
-        <Route path="/hashtag/:tag" element={<PageShell><Hashtag /></PageShell>} />
+      <Routes location={useLocation()} key={pathname}>
+        <Route path="/"             element={<PageWrap><Feed /></PageWrap>} />
+        <Route path="/search"       element={<PageWrap><Search /></PageWrap>} />
+        <Route path="/swap"         element={<PageWrap><Swap /></PageWrap>} />
+        <Route path="/profile"      element={<PageWrap><Profile /></PageWrap>} />
+        <Route path="/messages"     element={<PageWrap><Messages /></PageWrap>} />
+        <Route path="/requests"     element={<PageWrap><Requests /></PageWrap>} />
+        <Route path="/hashtag/:tag" element={<PageWrap><Hashtag /></PageWrap>} />
         <Route path="*"             element={<Navigate to="/" replace />} />
       </Routes>
     </AnimatePresence>
@@ -63,28 +59,18 @@ function AnimatedRoutes() {
 function AppShell() {
   const { user, loading } = useAuth();
 
-  // Show spinner while checking auth — but max 8s (timeout in useAuth)
-  if (loading) return <Spinner />;
+  if (loading) return <Spinner label="SkillSwap" />;
 
-  // Not logged in — show auth page
-  if (!user) {
-    return (
-      <Suspense fallback={<Spinner />}>
-        <Routes>
-          <Route path="*" element={<Auth />} />
-        </Routes>
-      </Suspense>
-    );
-  }
+  if (!user) return (
+    <Suspense fallback={<Spinner />}>
+      <Routes><Route path="*" element={<Auth />} /></Routes>
+    </Suspense>
+  );
 
-  // Logged in — show app
   return (
-    <div className="min-h-svh relative overflow-x-hidden">
-      {/* Ambient background */}
-      <div className="aurora-orb w-[550px] h-[550px] bg-white/[0.018] -top-48 -left-48 pointer-events-none" />
-      <div className="aurora-orb w-[450px] h-[450px] bg-white/[0.013] top-[40%] -right-36 pointer-events-none" style={{ animationDelay: '7s' }} />
-      <div className="liquid-orb  w-[300px] h-[300px] bg-white/[0.009]  bottom-[20%] left-[28%] pointer-events-none" style={{ animationDelay: '3s' }} />
-
+    <div className="min-h-svh relative overflow-x-hidden" style={{ background: '#060606' }}>
+      <div className="aurora-orb" style={{ width: 500, height: 500, background: 'rgba(255,255,255,0.018)', top: -200, left: -200 }} />
+      <div className="aurora-orb" style={{ width: 400, height: 400, background: 'rgba(255,255,255,0.013)', top: '45%', right: -160, animationDelay: '7s' }} />
       <Navbar />
       <Suspense fallback={<Spinner />}>
         <AnimatedRoutes />
@@ -99,9 +85,9 @@ export default function App() {
     <ErrorBoundary>
       <ToastProvider>
         <AuthProvider>
-          <Router>
+          <BrowserRouter>
             <AppShell />
-          </Router>
+          </BrowserRouter>
         </AuthProvider>
       </ToastProvider>
     </ErrorBoundary>
