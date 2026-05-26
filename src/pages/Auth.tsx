@@ -21,7 +21,7 @@ export default function Auth() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/`,
+        redirectTo: window.location.origin,
         queryParams: { access_type: 'offline', prompt: 'consent' },
       },
     });
@@ -64,7 +64,7 @@ export default function Auth() {
   const handleForgot = async () => {
     if (!email) { setError('Enter your email first'); return; }
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/`,
+      redirectTo: window.location.origin,
     });
     if (error) setError(error.message);
     else setSuccess('Password reset email sent!');

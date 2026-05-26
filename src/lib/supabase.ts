@@ -1,22 +1,23 @@
 import { createClient } from '@supabase/supabase-js';
 
-// These are public/anon credentials — safe to hardcode in frontend
-const SUPABASE_URL     = 'https://gsgftpmlhvwrmzhznylj.supabase.co';
+// Public anon credentials — safe to ship in frontend
+const SUPABASE_URL      = 'https://gsgftpmlhvwrmzhznylj.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdzZ2Z0cG1saHZ3cm16aHpueWxqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0OTExMTYsImV4cCI6MjA5MTA2NzExNn0.Yyw8mKpLo463XDRtmwacR0GoLMzQU3-pkkqdidUxm_w';
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     persistSession:     true,
     autoRefreshToken:   true,
-    detectSessionInUrl: true,
+    detectSessionInUrl: true,   // Required: exchanges ?code= from Google OAuth
     storageKey:         'skillswap-auth',
-    flowType:           'pkce',
+    flowType:           'pkce', // Required for SPAs with Google OAuth
   },
   realtime: {
     params: { eventsPerSecond: 10 },
   },
 });
 
+/** Upload post image/video → { media_url, media_type } */
 export async function uploadPostMedia(
   userId: string,
   file: File
@@ -32,6 +33,7 @@ export async function uploadPostMedia(
   };
 }
 
+/** Upload avatar → public URL */
 export async function uploadAvatar(userId: string, file: File): Promise<string> {
   const ext  = file.name.split('.').pop() ?? 'jpg';
   const path = `avatars/${userId}/avatar.${ext}`;
